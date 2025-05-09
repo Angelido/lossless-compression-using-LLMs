@@ -4,9 +4,6 @@ from typing import List, Dict
 from utility import compute_token_ranks_parallel
 
 
-# ====== NEW FUNCTIONS ====== #
-
-
 # ====== ChunkDataset ====== #
 class ChunkDataset(Dataset):
     '''
@@ -89,9 +86,8 @@ def preprocess_dataset_fast(input_texts: List[str], tokenizer: torch.nn.Module, 
 
 
 # ===================================================================================================
-#======================================== OLD FUNCTIONS =============================================
+# ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
-
 
 # ====== CodeDataset ====== #
 class CodeDataset(Dataset):
