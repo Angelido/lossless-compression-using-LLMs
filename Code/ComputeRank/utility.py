@@ -6,7 +6,7 @@ from typing import List, Tuple, Dict
 
 
 
-# ===== sort_chunks_by_lenght ===== #
+# ===== sort_chunks_by_length ===== #
 def sort_chunks_by_length(
     input_id_list: List[torch.Tensor],
     mapping: Dict[int, List[int]],
