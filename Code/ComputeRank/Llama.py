@@ -23,9 +23,6 @@ batch_size = 32
 max_length = 512
 PAD_TOKEN_ID = tokenizer.pad_token_id
 
-# Set the pad token to the end of the sequence
-#tokenizer.pad_token = tokenizer.eos_token 
-
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
@@ -34,10 +31,6 @@ print("device=", device)
 df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
 # input_texts = df["text"].head(32).tolist()
-
-# OLD VERSION
-#processed_texts, mapping = preprocess_dataset(input_texts, tokenizer, max_length)
-#dataloader = create_dataloader(processed_texts, tokenizer, batch_size=batch_size, max_length=max_length)
 
 # NEW VERSION
 input_id_list, mapping = preprocess_dataset_fast(
@@ -58,6 +51,7 @@ dataloader = create_chunk_dataloader(
 )
 
 print("After dataloader")
+
 # # For choose the right max_length
 # row_lengths = count_nonpad_tokens_per_row(input_id_list, mapping, PAD_TOKEN_ID)
 # # Show the distribution of token lengths
@@ -68,9 +62,6 @@ print("After dataloader")
 # Timer start
 start_time = time.perf_counter()
 
-# OLD VERSION
-# rank_list = compute_token_ranks_from_dataloader(dataloader, model, tokenizer, device, PAD_TOKEN_ID)
-
 # Compute the rank list using the DataLoader
 rank_list = compute_token_ranks_fast(
      dataloader,
@@ -78,12 +69,10 @@ rank_list = compute_token_ranks_fast(
      pad_token_id=PAD_TOKEN_ID,
      device=device
 )
-# print(rank_list)
 
 # Timer end
 end_time = time.perf_counter()
 execution_time = end_time - start_time
-# print(f"Execution time ({model_name} processing): {execution_time:.4f} seconds")
 
 print("Finished computing rank list")
 
@@ -92,10 +81,6 @@ reconstructed_rank_list = [
     [rank for chunk_idx in mapping[row_idx] for rank in rank_list[chunk_idx]]
     for row_idx in range(len(input_texts))
 ]
-
-# # Compute the rank list
-# rank_list=compute_token_ranks(input_ids, model, tokenizer, device, PAD_TOKEN_ID)
-# print(rank_list)
 
 # Save the rank list to a file
 save_rank_list_to_file(
@@ -107,7 +92,3 @@ save_rank_list_to_file(
 
 # Regenerate texts based on the rank list
 # generated_texts = regenerate_texts(rank_list, model, tokenizer, device)
-
-# for text in generated_texts:
-#     print(text)
-#     print("\n")

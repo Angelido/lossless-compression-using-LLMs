@@ -1,35 +1,26 @@
+import numpy as np
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
 from utility import save_rank_list_to_file, regenerate_texts
-from utility import count_nonpad_tokens_per_row, sort_chunks_by_length, compute_token_ranks_fast
-
-# Login to Hugging Face Hub
-from huggingface_hub import login
-login(token="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")
+from utility import count_nonpad_tokens_per_row, sort_chunks_by_length, compute_token_ranks_fast_seq2seq
 
 # Model name
-# model_name = "unsloth/Llama-3.2-1B-bnb-4bit" # Quantized
-model_name = "unsloth/Llama-3.2-3B-bnb-4bit" # Quantized
+model_name = "Salesforce/codet5-base"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-tokenizer.pad_token = tokenizer.eos_token 
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    device_map="auto",            # pass the model to the GPU
-    trust_remote_code=True
-)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
 batch_size = 32
 max_length = 512
-PAD_TOKEN_ID = tokenizer.pad_token_id
+PAD_TOKEN_ID = tokenizer.pad_token_id  
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# model.to(device)
+model.to(device)
 print("device=", device)
 
 df = pd.read_csv("Dataset/CodeDataset.csv")
@@ -66,7 +57,7 @@ print("After dataloader")
 start_time = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast(
+rank_list = compute_token_ranks_fast_seq2seq(
      dataloader,
      model,
      pad_token_id=PAD_TOKEN_ID,
@@ -88,7 +79,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/rank_list.txt",
+    file_path="TextInformation/CodeT5_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )

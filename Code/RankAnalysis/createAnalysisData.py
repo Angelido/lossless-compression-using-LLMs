@@ -114,6 +114,7 @@ if __name__ == "__main__":
     ]
     extension = "_rank_list.txt"
     
+    # Collect model statistics
     df_stats = collect_model_stats(folder_path, model_names, extension)
     print(df_stats.head())
     

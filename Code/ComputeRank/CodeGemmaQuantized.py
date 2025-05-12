@@ -1,7 +1,8 @@
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
 from utility import save_rank_list_to_file, regenerate_texts
 from utility import count_nonpad_tokens_per_row, sort_chunks_by_length, compute_token_ranks_fast
@@ -11,25 +12,29 @@ from huggingface_hub import login
 login(token="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")
 
 # Model name
-# model_name = "unsloth/Llama-3.2-1B-bnb-4bit" # Quantized
-model_name = "unsloth/Llama-3.2-3B-bnb-4bit" # Quantized
+model_name = "PrunaAI/google-codegemma-2b-AWQ-4bit-smashed"  # Specialized for code
 
 # Model tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-tokenizer.pad_token = tokenizer.eos_token 
-model = AutoModelForCausalLM.from_pretrained(
+tokenizer = AutoTokenizer.from_pretrained("google/codegemma-2b") # Specialized for code
+
+# Set the pad token to the end of the sequence if it is not already set
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+PAD_TOKEN_ID = tokenizer.pad_token_id  
+
+model = AutoAWQForCausalLM.from_quantized(
     model_name,
-    device_map="auto",            # pass the model to the GPU
-    trust_remote_code=True
+    fuse_layers=True,
+    trust_remote_code=True,
+    safetensors=True
 )
 
 batch_size = 32
 max_length = 512
-PAD_TOKEN_ID = tokenizer.pad_token_id
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# model.to(device)
+model.to(device)
 print("device=", device)
 
 df = pd.read_csv("Dataset/CodeDataset.csv")
@@ -88,7 +93,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/rank_list.txt",
+    file_path="TextInformation/CodeGemmaQuantized_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
