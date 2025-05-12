@@ -1,55 +1,51 @@
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
-from utility import ( 
+from unixcoder import UniXcoder
+from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_unixcoder
+from utility import (
     save_rank_list_to_file,
-    regenerate_texts,
-    count_nonpad_tokens_per_row, 
-    sort_chunks_by_length, 
-    compute_token_ranks_fast
+    count_nonpad_tokens_per_row,
+    sort_chunks_by_length,
+    compute_token_ranks_fast_unixcoder  
 )
 
-# Login to Hugging Face Hub
-from huggingface_hub import login
-login(token="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")
-
 # Model name
-model_name = "meta-llama/Llama-3.2-1B" # Not quantized
-# model_name = "meta-llama/Llama-3.2-3B" # Not quantized
+model_name = "microsoft/unixcoder-base"
 
-# Model tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-tokenizer.pad_token = tokenizer.eos_token 
-model = AutoModelForCausalLM.from_pretrained(model_name)
+# Tokenizer and model
+ux = UniXcoder(model_name)
+tokenizer = ux.tokenizer
+model = ux   
 
-batch_size = 32
+batch_size = 64
 max_length = 512
-PAD_TOKEN_ID = tokenizer.pad_token_id
+PAD_TOKEN_ID = tokenizer.pad_token_id  
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 print("device=", device)
 
+# Load the dataset
 df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
-# input_texts = df["text"].head(32).tolist()
 
-# NEW VERSION
-input_id_list, mapping = preprocess_dataset_fast(
+# Preprocessing and chunking
+input_id_list, mapping = preprocess_dataset_fast_unixcoder(
     input_texts,
-    tokenizer,
+    ux,
     max_length=max_length,
     stride=0           
 )
+# Sort the chunks by length
 input_id_list, mapping = sort_chunks_by_length(
     input_id_list,
     mapping,
     pad_token_id=PAD_TOKEN_ID,
     descending=True
 )
+# Create a DataLoader for the input sequences
 dataloader = create_chunk_dataloader(
     input_id_list,
     batch_size=batch_size
@@ -68,9 +64,9 @@ print("After dataloader")
 start_time = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast(
+rank_list = compute_token_ranks_fast_unixcoder(
      dataloader,
-     model,
+     ux,
      pad_token_id=PAD_TOKEN_ID,
      device=device
 )
@@ -90,7 +86,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/rank_list.txt",
+    file_path="TextInformation/UnixCoder2.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
