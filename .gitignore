@@ -1,4 +1,4 @@
-TextInformation/
+Results/TextInformation/
 .DS_Store
-Dataset/
-Code/ComputeRank/unixcoder.py
+Datasets/TestModels/
+Code/unixcoder.py
