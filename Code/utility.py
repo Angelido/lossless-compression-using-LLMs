@@ -1,11 +1,6 @@
 import pandas as pd
 import torch
 import os
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader
-from torch.nn.functional import softmax
-from transformers import AutoModelForSeq2SeqLM
-from unixcoder import UniXcoder
 from typing import List, Tuple, Dict
 
 
