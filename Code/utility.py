@@ -1,7 +1,11 @@
 import pandas as pd
 import torch
+import os
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.nn.functional import softmax
+from transformers import AutoModelForSeq2SeqLM
+from unixcoder import UniXcoder
 from typing import List, Tuple, Dict
 
 
@@ -49,7 +53,8 @@ def sort_chunks_by_length(
 def count_nonpad_tokens_per_row(
     input_id_list: List[torch.Tensor],
     mapping: Dict[int, List[int]],
-    pad_token_id: int
+    pad_token_id: int,
+    bos_token_id: int,
 ) -> Dict[int, int]:
     """
     Count the number of non-padding tokens in each row of a list of input IDs. 
@@ -59,6 +64,7 @@ def count_nonpad_tokens_per_row(
     - input_id_list: List of tensors containing input IDs.
     - mapping: Dictionary mapping original row indices to chunk indices.
     - pad_token_id: ID of the padding token. 
+    - bos_token_id: ID of the beginning-of-sequence token.
     
     Return:
     - row_token_counts: Dictionary mapping original row indices to the count of non-padding tokens.
@@ -68,9 +74,10 @@ def count_nonpad_tokens_per_row(
         total = 0
         for ci in chunk_indices:
             ids: torch.Tensor = input_id_list[ci]
-            # Count non-padding tokens
-            nonpad = (ids != pad_token_id).sum().item()
-            total += nonpad
+            # Count only tokens != pad AND != bos
+            mask = (ids != pad_token_id) & (ids != bos_token_id)
+            nonpad_nobos = int(mask.sum().item())
+            total += nonpad_nobos
         row_token_counts[orig_idx] = total
     return row_token_counts
 
@@ -94,272 +101,267 @@ def save_rank_list_to_file(rank_list: List[List[int]], file_path: str,
         file.write(f"Execution time ({model_name} processing): {execution_time:.4f} seconds\n")
         for sublist in rank_list:
             file.write(f"[{' '.join(map(str, sublist))}]\n")
+            
 
 
-
-
-# ====== compute_token_ranks_fast ====== #
-def compute_token_ranks_fast(
-    dataloader: DataLoader,
-    model: torch.nn.Module,
-    pad_token_id: int,
-    device: str
-) -> List[List[int]]:
+# ====== save_info_to_csv ====== #            
+def save_info_to_csv(
+    folder_path: str, 
+    csv_filename: str, 
+    row_dict: dict
+) -> None:
     """
-    Vectorized computation of token ranks for a batch of sequences. 
-    This function processes the entire batch in parallel, leveraging the model's ability to compute logits for all tokens at once. 
+    Save or append a row to a CSV file in the specified folder.
+    The row contains information about the model used, compression time, and other relevant metrics.
+    If the CSV file does not exist, it will be created with headers.
+    If it exists, the new row will be appended without headers. \n
 
-    Inputs:
-    - dataloader: DataLoader containing the input sequences.
-    - model: Pre-trained language model.
-    - pad_token_id: ID of the padding token.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu'). 
-    
-    
-    Return:
-    - all_ranks: List of ranks for each sequence in the batch.
-    """
-    model.eval()
-    all_ranks = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch.to(device) # [B, L]
-            # Create attention mask 1s for non-padding tokens
-            attention_mask = (input_ids != pad_token_id).long().to(device)
-
-            # Vectorized forward pass
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits  # [B, L, V]
-
-            # We need to shift the logits to align with the target tokens
-            vocab_size = logits.size(-1)
-            logits_input = logits[:, :-1, :]               # [B, L-1, V]
-            target_ids   = input_ids[:, 1:]                # [B, L-1]
-
-            # Compute the logits for the target tokens
-            target_logits = logits_input.gather(
-                dim=-1,
-                index=target_ids.unsqueeze(-1)
-            ).squeeze(-1)                               # [B, L-1]
-
-            # Compute ranks
-            ranks = (logits_input > target_logits.unsqueeze(-1)).sum(dim=-1)  # [B, L-1]
-
-            # Set ranks to -1 for padding tokens
-            ranks = ranks.masked_fill(target_ids == pad_token_id, -1)
-
-            # Convert ranks to a list
-            for seq_ranks, mask in zip(ranks.tolist(), attention_mask[:,1:].tolist()):
-                effective_len = sum(mask)
-                all_ranks.append(seq_ranks[:effective_len])
-
-    return all_ranks
-
-
-
-# ====== regenerate_texts ====== #
-def regenerate_texts(rank_list: List[List[int]], model: torch.nn.Module, 
-                     tokenizer: torch.nn.Module, device: str) -> List[str]:
-    """
-    Regenerate texts based on the rank list. \n
     Input:
-    - rank_list: List of ranks for each sequence.
-    - model: Pre-trained language model.
-    - tokenizer: Tokenizer used to encode the input.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu'). \n
-    Return:
-    - generated_texts: List of regenerated texts.
+    - folder_path: Path to the folder where the CSV will be saved or searched.
+    - csv_filename: Name of the CSV file (e.g., "DeepSeek_rank_list_info.csv").
+    - row_dict: Dictionary containing the columns and values to insert (e.g., {"model": ..., "inference_time_s": ..., ...}).
     """
-    generated_texts = []  
-     # Get the start token
-    start_token_id = tokenizer.bos_token_id or tokenizer.cls_token_id 
+    # Check if the folder exists, create it if not
+    os.makedirs(folder_path, exist_ok=True)
 
-    for seq_idx in range(len(rank_list)): 
-        generated_tokens = []  
-        token_prefix = torch.tensor([[start_token_id]], device=device)  # Start with the first token
+    csv_path = os.path.join(folder_path, csv_filename)
+    df_row = pd.DataFrame([row_dict])
 
-        for rank in rank_list[seq_idx]:  
-            # Predict the next token's probabilities
-            _, _, probs = predict_next_token(token_prefix, model, tokenizer)
-
-            # Sort token probabilities in descending order
-            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-
-            # Select the token based on the stored rank
-            generated_token_id = sorted_indices[:, rank].item()
-            generated_tokens.append(generated_token_id)  
-
-            # Update the prefix by adding the newly generated token
-            token_prefix = torch.cat((token_prefix, torch.tensor([[generated_token_id]], device=device)), dim=1)
-
-            # Stop if the generated token is the end-of-sequence token
-            if generated_token_id == tokenizer.eos_token_id:
-                break
-
-        # Decode the generated token IDs into a text string
-        generated_texts.append(tokenizer.decode(generated_tokens, skip_special_tokens=True))
-
-    return generated_texts  
+    # If the CSV file does not exist, create it with headers
+    if not os.path.isfile(csv_path):
+        df_row.to_csv(csv_path, mode="w", header=True, index=False)
+        print(f"CSV creato con header: {csv_path}")
+    # If the file exists, append the new row without headers
+    else:
+        df_row.to_csv(csv_path, mode="a", header=False, index=False)
+        print(f"Riga aggiunta al CSV esistente: {csv_path}")
 
 
 
+# ====== sort_rank_lists_by_length ====== #
+def sort_rank_lists_by_length(
+    rank_lists: List[List[int]]
+) -> Tuple[List[List[int]], Dict[int, int]]:
+    """
+    Ordina le liste di rank per lunghezze simili (descending), mantenendo un mapping all'indice originale.
+
+    Args:
+        rank_lists: lista di liste di rank (una per riga di testo).
+    Returns:
+        sorted_lists: liste ordinate per lunghezza decrescente.
+        index_map: dizionario che mappa nuovo indice -> indice originale.
+    """
+    # crea lista di (len, original_idx, ranks)
+    meta = [(len(lst), idx, lst) for idx, lst in enumerate(rank_lists)]
+    # ordina per lunghezza decrescente
+    meta_sorted = sorted(meta, key=lambda x: x[0], reverse=True)
+    sorted_lists = [item[2] for item in meta_sorted]
+    index_map = {new_idx: orig_idx for new_idx, (_, orig_idx, _) in enumerate(meta_sorted)}
+    return sorted_lists, index_map
+
+ 
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
 
 
-# ====== parse_code_blocks ====== #
-def parse_code_blocks(file_path: str) -> pd.DataFrame:
-    """
-    Parse a file containing code blocks separated by headers.
-    The headers are lines starting with '#'. \n
-    Input:
-    - file_path: Path to the input file. \n
-    Return:
-    - a DataFrame with a column 'Code Block' containing the code blocks.
+# # ====== parse_code_blocks ====== #
+# def parse_code_blocks(file_path: str) -> pd.DataFrame:
+#     """
+#     Parse a file containing code blocks separated by headers.
+#     The headers are lines starting with '#'. \n
+#     Input:
+#     - file_path: Path to the input file. \n
+#     Return:
+#     - a DataFrame with a column 'Code Block' containing the code blocks.
  
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+#     """
+#     with open(file_path, 'r', encoding='utf-8') as f:
+#         lines = f.readlines()
 
-    blocks = []
-    current_block = []
+#     blocks = []
+#     current_block = []
 
-    for line in lines:
-        stripped = line.strip()
+#     for line in lines:
+#         stripped = line.strip()
         
-        if stripped.startswith("#"):  # New block
-            if current_block:  
-                blocks.append("\n".join(current_block))
-            current_block = [stripped]  
-        elif stripped:  
-            current_block.append(" " + stripped)  
+#         if stripped.startswith("#"):  # New block
+#             if current_block:  
+#                 blocks.append("\n".join(current_block))
+#             current_block = [stripped]  
+#         elif stripped:  
+#             current_block.append(" " + stripped)  
 
-    # Add the last block
-    if current_block:
-        blocks.append("\n".join(current_block))
+#     # Add the last block
+#     if current_block:
+#         blocks.append("\n".join(current_block))
 
-    return pd.DataFrame({"Code Block": blocks})
-
-
-
-# ====== predict_next_token ====== #
-def predict_next_token(input_ids: torch.Tensor, model: torch.nn.Module, 
-                    tokenizer: torch.nn.Module) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Predict the next token given a sequence of input tokens. \n
-    Input:
-    - input_ids: Tensor of input token IDs.
-    - model: Pre-trained language model.
-    - tokenizer: Tokenizer used to encode the input. \n
-    Return:
-    - top_k_probs: Tensor of probabilities for the top k tokens.
-    - top_k_tokens: Tensor of the top k token IDs.
-    - probs: Tensor of probabilities for all tokens in the vocabulary.
-    """
-    # Compute the logits of the next token
-    with torch.no_grad():
-        outputs = model(input_ids=input_ids)
-        logits = outputs.logits[:, -1, :]  
-        # Compute the probabilities
-        probs = torch.softmax(logits, dim=-1)
-
-
-    # Get the top 5 most probable tokens
-    top_k_probs, top_k_tokens = torch.topk(probs, k=5, dim=-1)
-
-    return top_k_probs, top_k_tokens, probs
+#     return pd.DataFrame({"Code Block": blocks})
 
 
 
-# ====== compute_token_ranks ====== #
-def compute_token_ranks(input_ids: torch.Tensor, model: torch.nn.Module,
-                        tokenizer: torch.nn.Module, device: str,
-                        pad_token_id: int) -> List[List[int]]: 
-    """
-    Compute the rank of each token in the input sequences. 
-    Stops processing a sequence when encountering the padding token. \n
-    Input:
-    - input_ids: Tensor of input token IDs.
-    - model: Pre-trained language model.
-    - tokenizer: Tokenizer used to encode the input.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu').
-    - pad_token_id: ID of the padding token. \n
-    Return:
-    - rank_list: List of ranks for each sequence.
-    """
-    rank_list = [[] for _ in range(input_ids.shape[0])]
+# # ====== predict_next_token ====== #
+# def predict_next_token(input_ids: torch.Tensor, model: torch.nn.Module, 
+#                     tokenizer: torch.nn.Module) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+#     """
+#     Predict the next token given a sequence of input tokens. \n
+#     Input:
+#     - input_ids: Tensor of input token IDs.
+#     - model: Pre-trained language model.
+#     - tokenizer: Tokenizer used to encode the input. \n
+#     Return:
+#     - top_k_probs: Tensor of probabilities for the top k tokens.
+#     - top_k_tokens: Tensor of the top k token IDs.
+#     - probs: Tensor of probabilities for all tokens in the vocabulary.
+#     """
+#     # Compute the logits of the next token
+#     with torch.no_grad():
+#         outputs = model(input_ids=input_ids)
+#         logits = outputs.logits[:, -1, :]  
+#         # Compute the probabilities
+#         probs = torch.softmax(logits, dim=-1)
 
-    for seq_idx in range(input_ids.shape[0]):  
-        for i in range(len(input_ids[seq_idx]) - 1):  
+
+#     # Get the top 5 most probable tokens
+#     top_k_probs, top_k_tokens = torch.topk(probs, k=5, dim=-1)
+
+#     return top_k_probs, top_k_tokens, probs
+
+
+
+# # ====== compute_token_ranks ====== #
+# def compute_token_ranks(input_ids: torch.Tensor, model: torch.nn.Module,
+#                         tokenizer: torch.nn.Module, device: str,
+#                         pad_token_id: int) -> List[List[int]]: 
+#     """
+#     Compute the rank of each token in the input sequences. 
+#     Stops processing a sequence when encountering the padding token. \n
+#     Input:
+#     - input_ids: Tensor of input token IDs.
+#     - model: Pre-trained language model.
+#     - tokenizer: Tokenizer used to encode the input.
+#     - device: Device to run the model on (e.g., 'cuda' or 'cpu').
+#     - pad_token_id: ID of the padding token. \n
+#     Return:
+#     - rank_list: List of ranks for each sequence.
+#     """
+#     rank_list = [[] for _ in range(input_ids.shape[0])]
+
+#     for seq_idx in range(input_ids.shape[0]):  
+#         for i in range(len(input_ids[seq_idx]) - 1):  
             
-            # Stop if the padding token is reached
-            if input_ids[seq_idx, i].item() == pad_token_id:
-                break  
+#             # Stop if the padding token is reached
+#             if input_ids[seq_idx, i].item() == pad_token_id:
+#                 break  
 
-            token_prefix = input_ids[seq_idx, :i+1].unsqueeze(0)  
+#             token_prefix = input_ids[seq_idx, :i+1].unsqueeze(0)  
 
-            # Predict next token probabilities
-            _, _, probs = predict_next_token(token_prefix, model, tokenizer)
+#             # Predict next token probabilities
+#             _, _, probs = predict_next_token(token_prefix, model, tokenizer)
 
-            actual_token_id = input_ids[seq_idx, i+1].item()  
+#             actual_token_id = input_ids[seq_idx, i+1].item()  
 
-            # Sort all tokens by probability
-            sorted_indices = torch.argsort(probs, descending=True)
+#             # Sort all tokens by probability
+#             sorted_indices = torch.argsort(probs, descending=True)
             
-            # Get the rank of the actual token
-            actual_token_rank = (sorted_indices == actual_token_id).nonzero(as_tuple=True)[1].item()  
-            rank_list[seq_idx].append(actual_token_rank)
+#             # Get the rank of the actual token
+#             actual_token_rank = (sorted_indices == actual_token_id).nonzero(as_tuple=True)[1].item()  
+#             rank_list[seq_idx].append(actual_token_rank)
 
-    return rank_list
+#     return rank_list
 
 
 
-# ====== compute_token_ranks_parallel ====== #
-def compute_token_ranks_parallel(input_ids: torch.Tensor, model: torch.nn.Module, 
-                                 tokenizer: torch.nn.Module, device: str, 
-                                 pad_token_id: int) -> List[List[int]]:
-    """
-    Compute the rank of each token in the input sequences for the entire batch simultaneously.
-    Stops processing a sequence when encountering the padding token. \n
-    Input:
-    - input_ids: Tensor of input token IDs.
-    - model: Pre-trained language model.
-    - tokenizer: Tokenizer used to encode the input.   
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu').
-    - pad_token_id: ID of the padding token. \n
-    Return:
-    - rank_list: List of ranks for each sequence.
-    """
-    batch_size, seq_len = input_ids.shape
-    rank_list = [[] for _ in range(batch_size)]
+# # ====== compute_token_ranks_parallel ====== #
+# def compute_token_ranks_parallel(input_ids: torch.Tensor, model: torch.nn.Module, 
+#                                  tokenizer: torch.nn.Module, device: str, 
+#                                  pad_token_id: int) -> List[List[int]]:
+#     """
+#     Compute the rank of each token in the input sequences for the entire batch simultaneously.
+#     Stops processing a sequence when encountering the padding token. \n
+#     Input:
+#     - input_ids: Tensor of input token IDs.
+#     - model: Pre-trained language model.
+#     - tokenizer: Tokenizer used to encode the input.   
+#     - device: Device to run the model on (e.g., 'cuda' or 'cpu').
+#     - pad_token_id: ID of the padding token. \n
+#     Return:
+#     - rank_list: List of ranks for each sequence.
+#     """
+#     batch_size, seq_len = input_ids.shape
+#     rank_list = [[] for _ in range(batch_size)]
     
-    # Mask to track which sequences are still active (1 = active, 0 = stopped due to padding)
-    active_mask = torch.ones(batch_size, dtype=torch.bool, device=device)
+#     # Mask to track which sequences are still active (1 = active, 0 = stopped due to padding)
+#     active_mask = torch.ones(batch_size, dtype=torch.bool, device=device)
 
-    for i in range(seq_len - 1):  
-        if not active_mask.any():
-            break  # Stop if all sequences reached padding
+#     for i in range(seq_len - 1):  
+#         if not active_mask.any():
+#             break  # Stop if all sequences reached padding
         
-        # Get only the active sequences (those that haven't reached padding yet)
-        active_indices = active_mask.nonzero(as_tuple=True)[0]
-        token_prefixes = input_ids[active_indices, :i+1]  # Keep growing the prefix
+#         # Get only the active sequences (those that haven't reached padding yet)
+#         active_indices = active_mask.nonzero(as_tuple=True)[0]
+#         token_prefixes = input_ids[active_indices, :i+1]  # Keep growing the prefix
         
-        # Predict next token probabilities for all active sequences
-        _, _, probs = predict_next_token(token_prefixes, model, tokenizer)
+#         # Predict next token probabilities for all active sequences
+#         _, _, probs = predict_next_token(token_prefixes, model, tokenizer)
 
-        # Compute ranks for each active sequence
-        sorted_indices = torch.argsort(probs, descending=True)  # Get sorted token indices
-        actual_token_ids = input_ids[active_indices, i+1]  # Get the actual next token
+#         # Compute ranks for each active sequence
+#         sorted_indices = torch.argsort(probs, descending=True)  # Get sorted token indices
+#         actual_token_ids = input_ids[active_indices, i+1]  # Get the actual next token
         
-        for idx, seq_idx in enumerate(active_indices):
-            # Get rank of the actual token
-            actual_token_rank = (sorted_indices[idx] == actual_token_ids[idx]).nonzero(as_tuple=True)[0].item()
-            rank_list[seq_idx].append(actual_token_rank)
+#         for idx, seq_idx in enumerate(active_indices):
+#             # Get rank of the actual token
+#             actual_token_rank = (sorted_indices[idx] == actual_token_ids[idx]).nonzero(as_tuple=True)[0].item()
+#             rank_list[seq_idx].append(actual_token_rank)
 
-            # Stop processing this sequence if we reach padding
-            if actual_token_ids[idx].item() == pad_token_id:
-                active_mask[seq_idx] = False  
+#             # Stop processing this sequence if we reach padding
+#             if actual_token_ids[idx].item() == pad_token_id:
+#                 active_mask[seq_idx] = False  
 
-    return rank_list
+#     return rank_list
+
+
+
+# # ====== regenerate_texts ====== #
+# def compute_regenerate_texts(rank_list: List[List[int]], model: torch.nn.Module, 
+#                      tokenizer: torch.nn.Module, device: str) -> List[str]:
+#     """
+#     Regenerate texts based on the rank list. \n
+#     Input:
+#     - rank_list: List of ranks for each sequence.
+#     - model: Pre-trained language model.
+#     - tokenizer: Tokenizer used to encode the input.
+#     - device: Device to run the model on (e.g., 'cuda' or 'cpu'). \n
+#     Return:
+#     - generated_texts: List of regenerated texts.
+#     """
+#     generated_texts = []  
+#      # Get the start token
+#     start_token_id = tokenizer.bos_token_id or tokenizer.cls_token_id 
+
+#     for seq_idx in range(len(rank_list)): 
+#         generated_tokens = []  
+#         token_prefix = torch.tensor([[start_token_id]], device=device)  # Start with the first token
+
+#         for rank in rank_list[seq_idx]:  
+#             # Predict the next token's probabilities
+#             _, _, probs = predict_next_token(token_prefix, model, tokenizer)
+
+#             # Sort token probabilities in descending order
+#             sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+
+#             # Select the token based on the stored rank
+#             generated_token_id = sorted_indices[:, rank].item()
+#             generated_tokens.append(generated_token_id)  
+
+#             # Update the prefix by adding the newly generated token
+#             token_prefix = torch.cat((token_prefix, torch.tensor([[generated_token_id]], device=device)), dim=1)
+
+#             # Stop if the generated token is the end-of-sequence token
+#             if generated_token_id == tokenizer.eos_token_id:
+#                 break
+
+#         # Decode the generated token IDs into a text string
+#         generated_texts.append(tokenizer.decode(generated_tokens, skip_special_tokens=True))
+
+#     return generated_texts 
