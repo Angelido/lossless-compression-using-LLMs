@@ -1,7 +1,13 @@
 import pandas as pd
+import numpy as np
 import torch
 import os
+import time
 from typing import List, Tuple, Dict
+import io
+import pickle
+import bz2
+import zstandard as zstd
 
 
 
@@ -99,6 +105,86 @@ def save_rank_list_to_file(rank_list: List[List[int]], file_path: str,
             
 
 
+# ====== compress_and_save ====== #
+def compress_and_save(
+    reconstructed_rank_list: list[list[int]],
+    results_dir: str,
+    *,
+    binary: bool,
+    use_zstd: bool,
+    compression_level: int,
+    filename_prefix: str
+) -> tuple[str, int, float]:
+    """
+    Serialize and compress 'reconstructed_rank_list', then save the compressed file into 'results_dir'.
+
+    Input:
+    - reconstructed_rank_list: a list of lists of integers to compress.
+    - results_dir: destination folder (will be created if it doesn’t exist).
+    - binary: if True, convert the data into NumPy → .npy; if False, use pickle.dumps.
+    - use_zstd: if True, use Zstandard; if False, use bzip2.
+    - compression_level: compression level (for Zstd: 1-22 typically, for bzip2: 1-9).
+    - filename_prefix: prefix for the output filename, e.g. "DeepSeek_rank_list".
+
+    Return:
+    - outfile_path: full path to the saved file,
+    - compressed_size_bytes: size of the compressed file in bytes,
+    - compression_time: time taken to perform compression (in seconds).
+    """
+    # Ensure that the output directory exists (create it if necessary)
+    # folder_dir="Compression"
+    # full_results_dir = os.path.join(folder_dir, results_dir)
+    # os.makedirs(full_results_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
+
+    start = time.perf_counter()
+
+    # Serialize into a single byte blob (data_blob)
+    if binary:
+        # Convert the list of lists into two NumPy arrays and write them to an in-memory .npy buffer
+        max_value = max(max(lst) for lst in reconstructed_rank_list if lst)
+        dtype = np.uint16 if max_value <= np.iinfo(np.uint16).max else np.uint32
+        lengths = np.array([len(lst) for lst in reconstructed_rank_list], dtype=np.int32)
+        flat_array = np.concatenate(
+            [np.array(lst, dtype=dtype) for lst in reconstructed_rank_list]
+        )
+        buf = io.BytesIO()
+        np.save(buf, lengths, allow_pickle=False)      # save lengths array header + data
+        np.save(buf, flat_array, allow_pickle=False)   # save flattened array header + data
+        data_blob = buf.getvalue()
+    else:
+        # Directly serialize the Python list of lists using pickle
+        data_blob = pickle.dumps(reconstructed_rank_list)
+
+    # Compress the serialized byte blob
+    if use_zstd:
+        compressor = zstd.ZstdCompressor(level=compression_level)
+        compressed_data = compressor.compress(data_blob)
+        ext = "zst"
+        compressor_name = f"zstd{compression_level}"
+    else:
+        compressed_data = bz2.compress(data_blob, compresslevel=compression_level)
+        ext = "bz2"
+        compressor_name = f"bzip2-{compression_level}"
+        
+    end = time.perf_counter()
+    compression_time = end - start
+
+    # Build the output filename based on chosen mode and compressor
+    mode = "binary" if binary else "pickle"
+    filename = f"{filename_prefix}_{mode}_{compressor_name}.{ext}"
+    outfile_path = os.path.join(results_dir, filename)
+    #save_path = os.path.join(full_results_dir, filename)
+
+    # 4) Write the compressed bytes to disk
+    with open(outfile_path, "wb") as f_out:
+        f_out.write(compressed_data)
+
+    compressed_size_bytes = len(compressed_data)
+    return outfile_path, compressed_size_bytes, compression_time
+
+
+
 # ====== save_info_to_csv ====== #            
 def save_info_to_csv(
     folder_path: str, 
@@ -109,12 +195,12 @@ def save_info_to_csv(
     Save or append a row to a CSV file in the specified folder.
     The row contains information about the model used, compression time, and other relevant metrics.
     If the CSV file does not exist, it will be created with headers.
-    If it exists, the new row will be appended without headers. \n
+    If it exists, the new row will be appended without headers. 
 
     Input:
-    - folder_path: Path to the folder where the CSV will be saved or searched.
-    - csv_filename: Name of the CSV file (e.g., "DeepSeek_rank_list_info.csv").
-    - row_dict: Dictionary containing the columns and values to insert (e.g., {"model": ..., "inference_time_s": ..., ...}).
+    - folder_path (str): Path to the folder where the CSV will be saved or searched.
+    - csv_filename (str): Name of the CSV file (e.g., "DeepSeek_rank_list_info.csv").
+    - row_dict (dict): Dictionary containing the columns and values to insert (e.g., {"model": ..., "inference_time_s": ..., ...}).
     """
     # Check if the folder exists, create it if not
     os.makedirs(folder_path, exist_ok=True)
@@ -130,6 +216,7 @@ def save_info_to_csv(
     else:
         df_row.to_csv(csv_path, mode="a", header=False, index=False)
         print(f"Riga aggiunta al CSV esistente: {csv_path}")
+        
 
 
 
