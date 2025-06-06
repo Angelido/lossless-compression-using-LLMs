@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer
-from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import sys
 import os
 
@@ -32,7 +31,7 @@ from utility import (
 # =========================
 
 # Model name
-model_name = "TheBloke/deepseek-coder-1.3b-base-AWQ"
+model_name = "bigcode/starcoder2-3b"
 language = "Python"  
 batch_size = 32
 max_length = 512
@@ -41,24 +40,26 @@ max_length = 512
 binary = True
 use_zstd = True  
 compression_level = 3
-filename_prefix = "DeepSeek_rank_list"
+filename_prefix = "StarCoder16_rank_list"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoAWQForCausalLM.from_pretrained(
-        model_name,     
-        device_map="auto",            # pass the model to the GPU
-        torch_dtype=torch.float16,    # mantain the model in float16 where needed
-        low_cpu_mem_usage=True,       # use less CPU memory
+tokenizer.pad_token = tokenizer.eos_token 
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,   # Use bfloat16 for computation
+    device_map="auto"
 )
 
-PAD_TOKEN_ID = tokenizer.pad_token_id
+# Set the pad token to the end of the sequence
+PAD_TOKEN_ID = tokenizer.pad_token_id  
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model.to(device)
+# model.to(device)
 print("device=", device)
 
+# Read dataset and save information
 df = pd.read_csv(f"Dataset/{language}100MB.csv")
 input_texts = df["text"].tolist()
 total_bytes = df["length_bytes"].sum()
@@ -139,60 +140,6 @@ outfile_path, compressed_size_bytes, compression_time = compress_and_save(
     compression_level=compression_level,
     filename_prefix=filename_prefix
 )
-
-
-# os.makedirs(results_dir, exist_ok=True)
-
-# compress_start = time.perf_counter()
-
-# if binary:
-#     # Convert to NumPy arrays and write to .npy buffer
-#     dtype = np.uint16
-#     lengths = np.array([len(lst) for lst in reconstructed_rank_list], dtype=np.int32)
-#     flat_array = np.concatenate(
-#         [np.array(lst, dtype=dtype) for lst in reconstructed_rank_list]
-#     )
-#     buffer = io.BytesIO()
-#     np.save(buffer, lengths, allow_pickle=False)
-#     np.save(buffer, flat_array, allow_pickle=False)
-#     data_blob = buffer.getvalue()
-
-# else:
-#     # Serialize using pickle
-#     data_blob = pickle.dumps(reconstructed_rank_list)
-
-# # Compress with either Zstandard or bz2, based on use_zstd
-# if use_zstd:
-    
-#     cctx = zstd.ZstdCompressor(level=compression_level)
-#     compressed_data = cctx.compress(data_blob)
-#     ext = "zst"
-#     compressor_name = f"zstd{compression_level}"
-# else:
-    
-#     compressed_data = bz2.compress(data_blob, compresslevel=compression_level)
-#     ext = "bz2"
-#     compressor_name = f"bzip2-{compression_level}"
-
-# # Write on the file, using the name based on compressor
-# if binary:
-#     outfile_path = os.path.join(
-#         results_dir,
-#         f"DeepSeek_rank_list_binary_{compressor_name}.{ext}"
-#     )
-# else:
-#     outfile_path = os.path.join(
-#         results_dir,
-#         f"DeepSeek_rank_list_pickle_{compressor_name}.{ext}"
-#     )
-
-# # Write compressed data to disk
-# with open(outfile_path, "wb") as f_out:
-#     f_out.write(compressed_data)
-
-# compress_end = time.perf_counter()
-# compression_time = compress_end - compress_start
-# compressed_size_bytes = len(compressed_data)
 
 # Print final summary
 print(f"File salvato in: {outfile_path}")

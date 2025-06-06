@@ -15,8 +15,9 @@ import io
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
-from computeRank import compute_token_ranks_fast
+from unixcoder import UniXcoder
+from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_unixcoder
+from computeRank import compute_token_ranks_fast_unixcoder
 from utility import (
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
@@ -32,27 +33,22 @@ from utility import (
 # =========================
 
 # Model name
-model_name = "TheBloke/deepseek-coder-1.3b-base-AWQ"
+model_name = "microsoft/unixcoder-base"
 language = "Python"  
 batch_size = 32
 max_length = 512
 
 # If zstd is True use level=(3, 12), else use level=3
 binary = True
-use_zstd = True  
+use_zstd = True
 compression_level = 3
-filename_prefix = "DeepSeek_rank_list"
 
-# Model tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoAWQForCausalLM.from_pretrained(
-        model_name,     
-        device_map="auto",            # pass the model to the GPU
-        torch_dtype=torch.float16,    # mantain the model in float16 where needed
-        low_cpu_mem_usage=True,       # use less CPU memory
-)
+# Tokenizer and model
+ux = UniXcoder(model_name)
+tokenizer = ux.tokenizer
+model = ux   
 
-PAD_TOKEN_ID = tokenizer.pad_token_id
+PAD_TOKEN_ID = tokenizer.pad_token_id  
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -69,12 +65,12 @@ total_bytes = df["length_bytes"].sum()
 
 start_create_dataloader = time.perf_counter()
 
-# NEW VERSION
-input_id_list, mapping = preprocess_dataset_fast(
+# Preprocessing and chunking
+input_id_list, mapping = preprocess_dataset_fast_unixcoder(
     input_texts,
-    tokenizer,
+    ux,
     max_length=max_length,
-    stride=0,           
+    stride=0           
 )
 input_id_list, mapping = sort_chunks_by_length(
     input_id_list,
@@ -100,9 +96,9 @@ print("After dataloader")
 start_compute_ranks = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast(
+rank_list = compute_token_ranks_fast_unixcoder(
      dataloader,
-     model,
+     ux,
      pad_token_id=PAD_TOKEN_ID,
      device=device
 )
@@ -129,6 +125,7 @@ print("Finished recostruncing rank list")
 # Compression and save results
 # =========================
 results_dir = "Results/CompressedFiles"
+filename_prefix = "UnixCoder_rank_list"
 
 # Esempio di chiamata:
 outfile_path, compressed_size_bytes, compression_time = compress_and_save(
@@ -139,60 +136,6 @@ outfile_path, compressed_size_bytes, compression_time = compress_and_save(
     compression_level=compression_level,
     filename_prefix=filename_prefix
 )
-
-
-# os.makedirs(results_dir, exist_ok=True)
-
-# compress_start = time.perf_counter()
-
-# if binary:
-#     # Convert to NumPy arrays and write to .npy buffer
-#     dtype = np.uint16
-#     lengths = np.array([len(lst) for lst in reconstructed_rank_list], dtype=np.int32)
-#     flat_array = np.concatenate(
-#         [np.array(lst, dtype=dtype) for lst in reconstructed_rank_list]
-#     )
-#     buffer = io.BytesIO()
-#     np.save(buffer, lengths, allow_pickle=False)
-#     np.save(buffer, flat_array, allow_pickle=False)
-#     data_blob = buffer.getvalue()
-
-# else:
-#     # Serialize using pickle
-#     data_blob = pickle.dumps(reconstructed_rank_list)
-
-# # Compress with either Zstandard or bz2, based on use_zstd
-# if use_zstd:
-    
-#     cctx = zstd.ZstdCompressor(level=compression_level)
-#     compressed_data = cctx.compress(data_blob)
-#     ext = "zst"
-#     compressor_name = f"zstd{compression_level}"
-# else:
-    
-#     compressed_data = bz2.compress(data_blob, compresslevel=compression_level)
-#     ext = "bz2"
-#     compressor_name = f"bzip2-{compression_level}"
-
-# # Write on the file, using the name based on compressor
-# if binary:
-#     outfile_path = os.path.join(
-#         results_dir,
-#         f"DeepSeek_rank_list_binary_{compressor_name}.{ext}"
-#     )
-# else:
-#     outfile_path = os.path.join(
-#         results_dir,
-#         f"DeepSeek_rank_list_pickle_{compressor_name}.{ext}"
-#     )
-
-# # Write compressed data to disk
-# with open(outfile_path, "wb") as f_out:
-#     f_out.write(compressed_data)
-
-# compress_end = time.perf_counter()
-# compression_time = compress_end - compress_start
-# compressed_size_bytes = len(compressed_data)
 
 # Print final summary
 print(f"File salvato in: {outfile_path}")
@@ -229,7 +172,7 @@ row_dict = {
 save_info_to_csv(info_dir, csv_file, row_dict)
 
 # Print results on screen
-print("=== Informazioni di fine esecuzione ===")
+print("=== End exection information ===")
 for key, value in row_dict.items():
     print(f"{key:25s}: {value}")
 print("=======================================\n")
