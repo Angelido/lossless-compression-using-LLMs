@@ -1,13 +1,19 @@
 import pandas as pd
 import time
 import torch
+import sys
+import os
+
+# Read also files from the parent folder (utility, dataLoader, computeRank)   
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from computeRank import compute_token_ranks_fast_unixcoder
 from unixcoder import UniXcoder
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_unixcoder
 from utility import (
     save_rank_list_to_file,
     count_nonpad_tokens_per_row,
     sort_chunks_by_length,
-    compute_token_ranks_fast_unixcoder  
 )
 
 # Model name
@@ -90,6 +96,3 @@ save_rank_list_to_file(
     execution_time=execution_time,
     model_name=model_name  
 )
-
-# Regenerate texts based on the rank list
-# generated_texts = regenerate_texts(rank_list, model, tokenizer, device)

@@ -2,13 +2,19 @@ import numpy as np
 import pandas as pd
 import time
 import torch
+import sys
+import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+# Read also files from the parent folder (utility, dataLoader, computeRank)   
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from computeRank import compute_token_ranks_fast
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
 from utility import (
     save_rank_list_to_file,
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
-    compute_token_ranks_fast
 )
 
 # Model name
@@ -74,7 +80,6 @@ rank_list = compute_token_ranks_fast(
      pad_token_id=PAD_TOKEN_ID,
      device=device
 )
-# print(rank_list)
 
 # Timer end
 end_time = time.perf_counter()
@@ -88,10 +93,6 @@ reconstructed_rank_list = [
     [rank for chunk_idx in mapping[row_idx] for rank in rank_list[chunk_idx]]
     for row_idx in range(len(input_texts))
 ]
-
-# # Compute the rank list
-# rank_list=compute_token_ranks(input_ids, model, tokenizer, device, PAD_TOKEN_ID)
-# print(rank_list)
 
 # Save the rank list to a file
 save_rank_list_to_file(

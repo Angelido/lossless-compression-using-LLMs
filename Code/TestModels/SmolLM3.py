@@ -10,13 +10,11 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
-from computeRank import compute_token_ranks_fast_stable
+from computeRank import compute_token_ranks_fast
 from utility import (
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
-    save_rank_list_to_file,
-    save_info_to_csv,
-    compress_and_save
+    save_rank_list_to_file
 )
 
 # Model name
@@ -30,9 +28,6 @@ model = AutoModelForCausalLM.from_pretrained(model_name)
 batch_size = 16
 max_length = 256
 PAD_TOKEN_ID = tokenizer.pad_token_id
-
-# Set the pad token to the end of the sequence
-#tokenizer.pad_token = tokenizer.eos_token 
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -62,6 +57,7 @@ dataloader = create_chunk_dataloader(
 )
 
 print("After dataloader")
+
 # # For choose the right max_length
 # row_lengths = count_nonpad_tokens_per_row(input_id_list, mapping, PAD_TOKEN_ID)
 # # Show the distribution of token lengths
@@ -72,17 +68,13 @@ print("After dataloader")
 # Timer start
 start_time = time.perf_counter()
 
-# OLD VERSION
-# rank_list = compute_token_ranks_from_dataloader(dataloader, model, tokenizer, device, PAD_TOKEN_ID)
-
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast_stable(
+rank_list = compute_token_ranks_fast(
      dataloader,
      model,
      pad_token_id=PAD_TOKEN_ID,
      device=device
 )
-# print(rank_list)
 
 # Timer end
 end_time = time.perf_counter()
