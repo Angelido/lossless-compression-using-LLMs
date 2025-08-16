@@ -1,5 +1,11 @@
 import pandas as pd 
-import numpy as np 
+
+# =======================================================
+# This file is used to gather information about the datasets
+# generated with the code in the DataCreation folder.
+# Specifically, it is intended for the larger datasets 
+# (one dataset per language, each approximately 100MB).
+# =======================================================
 
 language = {
     "python": "Python",
