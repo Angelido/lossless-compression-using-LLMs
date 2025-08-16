@@ -16,7 +16,7 @@ from utility import (
     save_info_to_csv,
 )
 
-# ATTENTION: change binary, compression, e file name ad every running 
+# ATTENTION: change cross_entropy e language at every execution
 
 # =========================
 # Global variables, tokenizer e load dataset

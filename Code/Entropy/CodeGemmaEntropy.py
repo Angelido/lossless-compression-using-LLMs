@@ -20,7 +20,7 @@ from utility import (
 from huggingface_hub import login
 login(token="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")
 
-# ATTENTION: change binary, compression, e file name ad every running 
+# ATTENTION: change cross_entropy e language at every execution
 
 # =========================
 # Global variables, tokenizer e load dataset

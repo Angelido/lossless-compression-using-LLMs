@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 import time
 import torch
@@ -6,25 +5,17 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import sys
 import os
 
-import zstandard as zstd
-import bz2
-import pickle
-import io
-
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_single
-from computeRank import compute_entropy, compute_cross_entropy
+from computeEntropy import compute_entropy, compute_cross_entropy
 from utility import (
-    count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
-    save_rank_list_to_file,
     save_info_to_csv,
-    compress_and_save
 )
 
-# ATTENTION: change binary, compression, e file name ad every running 
+# ATTENTION: change cross_entropy e language at every execution
 
 # =========================
 # Global variables, tokenizer e load dataset
