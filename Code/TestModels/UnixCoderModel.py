@@ -7,7 +7,7 @@ import os
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from computeRank import compute_token_ranks_fast_unixcoder
+from computeRank import compute_token_ranks_fast_unixcoder_old
 from unixcoder import UniXcoder
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_unixcoder
 from utility import (
@@ -70,7 +70,7 @@ print("After dataloader")
 start_time = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast_unixcoder(
+rank_list = compute_token_ranks_fast_unixcoder_old(
      dataloader,
      ux,
      pad_token_id=PAD_TOKEN_ID,

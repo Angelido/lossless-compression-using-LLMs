@@ -10,7 +10,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
-from computeRank import compute_token_ranks_fast
+from computeRank import compute_token_ranks_fast_old
 from utility import (
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
@@ -38,7 +38,7 @@ df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
 # input_texts = df["text"].head(32).tolist()
 
-# NEW VERSION
+# Preprocessing and chunking
 input_id_list, mapping = preprocess_dataset_fast(
     input_texts,
     tokenizer,
@@ -69,7 +69,7 @@ print("After dataloader")
 start_time = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast(
+rank_list = compute_token_ranks_fast_old(
      dataloader,
      model,
      pad_token_id=PAD_TOKEN_ID,

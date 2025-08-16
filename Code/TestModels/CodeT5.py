@@ -36,7 +36,7 @@ print("device=", device)
 df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
 
-# NEW VERSION
+# Preprocessing and chunking
 input_id_list, mapping = preprocess_dataset_fast(
     input_texts,
     tokenizer,
