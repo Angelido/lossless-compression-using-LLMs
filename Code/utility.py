@@ -13,8 +13,10 @@ import zstandard as zstd
 
 
 # =====================================================
-#
-#
+# This file contains general utility functions used across
+# all the codes. These functions provide support for tasks 
+# such as saving information, checking conditions, and 
+# performing other simple operations.
 # =====================================================
 
 
