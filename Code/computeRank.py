@@ -38,7 +38,7 @@ def compute_token_ranks_fast(
 
     Return:
     - all_ranks (List[List[int]]): a list of lists of integers, with no -1 values.
-    - timings: dict with cumulative time spent per section (seconds).
+    - timings (Dict[str, float]): dict with cumulative time spent per section (seconds).
     """
     model.eval()
     all_ranks: List[List[int]] = []
@@ -111,6 +111,109 @@ def compute_token_ranks_fast(
             timers["filter_pad_tokens"] += time.perf_counter() - start
 
     return all_ranks, timers
+
+
+
+# ====== compute_token_ranks_fast_unixcoder ====== #
+def compute_token_ranks_fast_unixcoder(
+    dataloader: DataLoader,
+    ux: UniXcoder,
+    pad_token_id: int,
+    device: str
+) -> List[List[int]]:
+    """
+    Vectorized computation of token ranks for a batch of sequences using UniXcoder.  
+    Processes the entire batch in parallel, leveraging UniXcoder’s ability to compute logits for all tokens at once.  
+    This version excludes `-1` values by filtering out padding tokens.
+
+    Input:
+    - dataloader (DataLoader): Yields batches of input token IDs (shape [B, L]).
+    - ux (UniXCoder): UniXcoder model returning token embeddings and exposing `.lm_head` for logits.
+    - pad_token_id (int): Token ID used for padding.
+    - device (str): Target device ('cuda' or 'cpu').
+
+    Return:
+    - all_ranks (List[List[int]]): A list of rank sequences, one per input sequence,  
+      containing only non-padding tokens.
+    - total_times (Dict[str, float]): Cumulative execution times per processing stage (seconds).
+    """
+    ux.eval()
+    all_ranks: List[List[int]] = []
+    
+    total_times = {
+        "inference": 0.0,
+        "logits_shift": 0.0,
+        "gather_logits": 0.0,
+        "compute_ranks": 0.0,
+        "filter_pad": 0.0,
+    }
+
+    with torch.no_grad():
+        for batch in dataloader:
+            
+             # === Move batch to device ===
+            input_ids = batch.to(device)
+            
+            # === Inference (causal forward pass) ===
+            t0 = time.perf_counter()
+            L = input_ids.size(-1)
+            # Extract the causal mask (upper-left L×L block from UniXcoder's bias buffer)
+            causal_mask = ux.bias[:, :L, :L].to(device)
+            token_embs = ux.model(input_ids, attention_mask=causal_mask)[0]
+            logits = ux.lm_head(token_embs)
+            t1 = time.perf_counter()
+            total_times["inference"] += t1 - t0
+            
+            # === Shift logits and targets (causal alignment) ===
+            t0 = time.perf_counter()
+            
+            # Remove last position from logits and align targets from position 1 onward
+            logits_input = logits[:, :-1, :]     # [B, L-1, V]
+            target_ids   = input_ids[:, 1:]      # [B, L-1]
+            t1 = time.perf_counter()
+            total_times["logits_shift"] += t1 - t0
+
+            # === Gather target logits ===
+            t0 = time.perf_counter()
+            # For each position (i, j), extract the logit of the true target token
+            # target_logits[i,j] = logits_input[i,j, target_ids[i,j]]
+            target_logits = logits_input.gather(
+                dim=-1,
+                index=target_ids.unsqueeze(-1)
+            ).squeeze(-1)
+            t1 = time.perf_counter()
+            total_times["gather_logits"] += t1 - t0# [B, L-1]
+
+            # === Compute ranks ===
+            t0 = time.perf_counter()
+            # Rank of each token = number of vocabulary logits greater than its target logit
+            ranks = (logits_input > target_logits.unsqueeze(-1)).sum(dim=-1)  # [B, L-1]
+            t1 = time.perf_counter()
+            total_times["compute_ranks"] += t1 - t0
+            
+            # === Filter out padding tokens ===
+            t0 = time.perf_counter()            
+            
+            # Build mask to keep only non-padding target tokens
+            mask_target = (target_ids != pad_token_id)    # [B, L-1]
+
+            # 2) Count valid tokens per sequence
+            lengths = mask_target.sum(dim=1).tolist()   # [B]
+
+            # Flatten all valid ranks into a single 1D tensor
+            flat_valid = ranks[mask_target]       # [sum(lengths)]
+
+            # Split back into per-sequence tensors
+            seq_tensors = torch.split(flat_valid, lengths)  # tuple of [len(seq)] tensors
+
+            # Convert to Python lists and collect results
+            for seq in seq_tensors:
+                all_ranks.append(seq.cpu().tolist())
+            
+            if device == "cuda":
+                torch.cuda.synchronize()
+            
+    return all_ranks, total_times
 
 
 

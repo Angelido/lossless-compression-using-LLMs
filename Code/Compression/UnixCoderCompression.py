@@ -2,26 +2,18 @@ import numpy as np
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer
-from awq import AutoAWQForCausalLM
 import sys
 import os
-
-import zstandard as zstd
-import bz2
-import pickle
-import io
 
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from unixcoder import UniXcoder
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_unixcoder
-from computeRank import compute_token_ranks_fast_unixcoder
+from computeRank import compute_token_ranks_fast_unixcoder_old
 from utility import (
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
-    save_rank_list_to_file,
     save_info_to_csv,
     compress_and_save
 )
@@ -38,7 +30,7 @@ language = "Python"
 batch_size = 32
 max_length = 512
 
-# If zstd is True use level=(3, 12), else use level=3
+# If zstd is True use level=(3, 12, 22), else use level=(3, 9)
 binary = True
 use_zstd = True
 compression_level = 3
@@ -96,7 +88,7 @@ print("After dataloader")
 start_compute_ranks = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast_unixcoder(
+rank_list = compute_token_ranks_fast_unixcoder_old(
      dataloader,
      ux,
      pad_token_id=PAD_TOKEN_ID,
@@ -138,8 +130,8 @@ outfile_path, compressed_size_bytes, compression_time = compress_and_save(
 )
 
 # Print final summary
-print(f"File salvato in: {outfile_path}")
-print(f"Dimensione del file compresso: {compressed_size_bytes} byte")
+print(f"File saved in: {outfile_path}")
+print(f"Compressed file size: {compressed_size_bytes} byte")
 
 # =========================
 # Save execution summary to CSV (create or append)
@@ -172,7 +164,7 @@ row_dict = {
 save_info_to_csv(info_dir, csv_file, row_dict)
 
 # Print results on screen
-print("=== End exection information ===")
+print("=== End-of-execution information ===")
 for key, value in row_dict.items():
     print(f"{key:25s}: {value}")
 print("=======================================\n")

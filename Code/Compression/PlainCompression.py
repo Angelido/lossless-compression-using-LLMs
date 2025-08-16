@@ -13,6 +13,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utility import save_info_to_csv
 
 
+# ===================================================
+# This file performs classical compression directly on the
+# language datasets, without using an LLM to compute ranks.  
+# The results of these calculations serve as a baseline
+# for comparison with the rank-based method.
+# ===================================================
+
+
 #============ all_path_end_with_ext ============#
 def all_path_end_with_ext(
     df: pd.DataFrame,

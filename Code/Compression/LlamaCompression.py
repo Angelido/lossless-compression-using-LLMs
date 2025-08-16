@@ -34,7 +34,7 @@ language = "Python"
 batch_size = 32
 max_length = 512
 
-# If zstd is True use level=(3, 12), else use level=3
+# If zstd is True use level=(3, 12, 22), else use level=(3, 9)
 binary = True
 use_zstd = True
 compression_level = 3
@@ -66,7 +66,7 @@ total_bytes = df["length_bytes"].sum()
 
 start_create_dataloader = time.perf_counter()
 
-# NEW VERSION
+# Preprocessing and chunking
 input_id_list, mapping = preprocess_dataset_fast(
     input_texts,
     tokenizer,
@@ -138,8 +138,8 @@ outfile_path, compressed_size_bytes, compression_time = compress_and_save(
 )
 
 # Print final summary
-print(f"File salvato in: {outfile_path}")
-print(f"Dimensione del file compresso: {compressed_size_bytes} byte")
+print(f"File saved in: {outfile_path}")
+print(f"Compressed file size: {compressed_size_bytes} byte")
 
 # =========================
 # Save execution summary to CSV (create or append)
@@ -172,7 +172,7 @@ row_dict = {
 save_info_to_csv(info_dir, csv_file, row_dict)
 
 # Print results on screen
-print("=== Informazioni di fine esecuzione ===")
+print("=== End-of-execution information ===")
 for key, value in row_dict.items():
     print(f"{key:25s}: {value}")
 print("=======================================\n")
