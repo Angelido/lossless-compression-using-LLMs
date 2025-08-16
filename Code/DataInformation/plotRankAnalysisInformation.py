@@ -27,7 +27,7 @@ def compute_rank_bins(
     """
     df = data.copy()
 
-    # Rinominazione coerente per leggibilità
+    # Rename the column 
     df["bin_eq_0"] = df["pct_eq_0"]
     df["bin_0_1"]  = df["pct_0_1"] - df["pct_eq_0"]
     df["bin_1_3"]  = df["pct_0_3"] - df["pct_0_1"]
