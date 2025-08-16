@@ -1,212 +1,35 @@
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
-from torch.nn.functional import softmax
 from typing import List, Tuple, Dict
 
 
 
-# ===== sort_chunks_by_length ===== #
-def sort_chunks_by_length(
-    input_id_list: List[torch.Tensor],
-    mapping: Dict[int, List[int]],
-    pad_token_id: int,
-    descending: bool = True
-) -> Tuple[List[torch.Tensor], Dict[int, List[int]]]:
+# ====== sort_rank_lists_by_length ====== #
+def sort_rank_lists_by_length(
+    rank_lists: List[List[int]]
+) -> Tuple[List[List[int]], Dict[int, int]]:
     """
-    Sort a list of input IDs based on the length of each tensor, without counting padding tokens.
-    The mapping is updated to reflect the new order of the chunks. 
+    Sorts a collection of rank lists by sequence length (descending order),
+    while preserving a mapping to the original indices.
 
     Input:
-    - input_id_list: List of tensors containing input IDs.
-    - mapping: Dictionary mapping original row indices to chunk indices.
-    - pad_token_id: ID of the padding token.
-    - descending: If True, sort in descending order (longest first). If False, sort in ascending order (shortest first). 
+    - rank_lists (List[List[int]]): A list of rank lists, one per input sequence.
 
     Return:
-    - sorted_input_ids: List of tensors sorted by length.
-    - new_mapping: Dictionary mapping original row indices to the new order of chunk indices.
+    - sorted_lists (List[List[int]]): The rank lists sorted by decreasing length.
+    - index_map (Dict[int, int]): A mapping from the new index to the original index.
     """
-    # Compute the lengths of each tensor, ignoring padding tokens
-    lengths = [int((ids != pad_token_id).sum().item()) for ids in input_id_list]
-    order = sorted(range(len(lengths)), key=lambda i: lengths[i], reverse=descending)
-    sorted_input_ids = [input_id_list[i] for i in order]
-
-    # Mapping from original indices to new indices
-    old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(order)}
-
-    # Update the mapping to reflect the new order
-    new_mapping: Dict[int, List[int]] = {}
-    for orig_idx, chunk_idxs in mapping.items():
-        new_idxs = [old_to_new[ci] for ci in chunk_idxs]
-        new_mapping[orig_idx] = sorted(new_idxs)
-
-    return sorted_input_ids, new_mapping
-
-
-
-# ===== count_nonpad_tokens_per_row ===== #
-def count_nonpad_tokens_per_row(
-    input_id_list: List[torch.Tensor],
-    mapping: Dict[int, List[int]],
-    pad_token_id: int
-) -> Dict[int, int]:
-    """
-    Count the number of non-padding tokens in each row of a list of input IDs. 
-    Use the mapping to determine which chunks belong to which original row. 
+    # Build metadata tuples: (length, original_index, list)
+    meta = [(len(lst), idx, lst) for idx, lst in enumerate(rank_lists)]
     
-    Input:
-    - input_id_list: List of tensors containing input IDs.
-    - mapping: Dictionary mapping original row indices to chunk indices.
-    - pad_token_id: ID of the padding token. 
+    # Sort by length in descending order
+    meta_sorted = sorted(meta, key=lambda x: x[0], reverse=True)
+    # Extract sorted lists and create mapping new_idx -> original_idx
+    sorted_lists = [item[2] for item in meta_sorted]
+    index_map = {new_idx: orig_idx for new_idx, (_, orig_idx, _) in enumerate(meta_sorted)}
     
-    Return:
-    - row_token_counts: Dictionary mapping original row indices to the count of non-padding tokens.
-    """
-    row_token_counts: Dict[int, int] = {}
-    for orig_idx, chunk_indices in mapping.items():
-        total = 0
-        for ci in chunk_indices:
-            ids: torch.Tensor = input_id_list[ci]
-            # Count non-padding tokens
-            nonpad = (ids != pad_token_id).sum().item()
-            total += nonpad
-        row_token_counts[orig_idx] = total
-    return row_token_counts
+    return sorted_lists, index_map
 
-
-
-# ====== save_rank_list_to_file ====== #
-def save_rank_list_to_file(rank_list: List[List[int]], file_path: str, 
-                        execution_time: float, model_name: str) -> None:
-    """
-    Save the rank list to a file, including execution time.
-    Each sublist in the rank list is saved in a separate line. 
-    The execution time is appended at the end of the file.
-    
-    Input:
-    - rank_list: List of lists containing ranks.
-    - file_path: Path to the output file.
-    - execution_time: Time taken to compute the rank list (in seconds).
-    - model_name: Name of the model used for processing.
-    """
-    with open(file_path, 'w') as file:
-        file.write(f"Execution time ({model_name} processing): {execution_time:.4f} seconds\n")
-        for sublist in rank_list:
-            file.write(f"[{' '.join(map(str, sublist))}]\n")
-
-
-
-
-# ====== compute_token_ranks_fast ====== #
-def compute_token_ranks_fast(
-    dataloader: DataLoader,
-    model: torch.nn.Module,
-    pad_token_id: int,
-    device: str
-) -> List[List[int]]:
-    """
-    Vectorized computation of token ranks for a batch of sequences. 
-    This function processes the entire batch in parallel, leveraging the model's ability to compute logits for all tokens at once. 
-
-    Inputs:
-    - dataloader: DataLoader containing the input sequences.
-    - model: Pre-trained language model.
-    - pad_token_id: ID of the padding token.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu'). 
-    
-    
-    Return:
-    - all_ranks: List of ranks for each sequence in the batch.
-    """
-    model.eval()
-    all_ranks = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch.to(device) # [B, L]
-            # Create attention mask 1s for non-padding tokens
-            attention_mask = (input_ids != pad_token_id).long().to(device)
-
-            # Vectorized forward pass
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits  # [B, L, V]
-
-            # We need to shift the logits to align with the target tokens
-            vocab_size = logits.size(-1)
-            logits_input = logits[:, :-1, :]               # [B, L-1, V]
-            target_ids   = input_ids[:, 1:]                # [B, L-1]
-
-            # Compute the logits for the target tokens
-            target_logits = logits_input.gather(
-                dim=-1,
-                index=target_ids.unsqueeze(-1)
-            ).squeeze(-1)                               # [B, L-1]
-
-            # Compute ranks
-            ranks = (logits_input > target_logits.unsqueeze(-1)).sum(dim=-1)  # [B, L-1]
-
-            # Set ranks to -1 for padding tokens
-            ranks = ranks.masked_fill(target_ids == pad_token_id, -1)
-
-            # Convert ranks to a list
-            for seq_ranks, mask in zip(ranks.tolist(), attention_mask[:,1:].tolist()):
-                effective_len = sum(mask)
-                all_ranks.append(seq_ranks[:effective_len])
-
-    return all_ranks
-
-
-
-# ====== regenerate_texts ====== #
-def regenerate_texts(rank_list: List[List[int]], model: torch.nn.Module, 
-                     tokenizer: torch.nn.Module, device: str) -> List[str]:
-    """
-    Regenerate texts based on the rank list. \n
-    Input:
-    - rank_list: List of ranks for each sequence.
-    - model: Pre-trained language model.
-    - tokenizer: Tokenizer used to encode the input.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu'). \n
-    Return:
-    - generated_texts: List of regenerated texts.
-    """
-    generated_texts = []  
-     # Get the start token
-    start_token_id = tokenizer.bos_token_id or tokenizer.cls_token_id 
-
-    for seq_idx in range(len(rank_list)): 
-        generated_tokens = []  
-        token_prefix = torch.tensor([[start_token_id]], device=device)  # Start with the first token
-
-        for rank in rank_list[seq_idx]:  
-            # Predict the next token's probabilities
-            _, _, probs = predict_next_token(token_prefix, model, tokenizer)
-
-            # Sort token probabilities in descending order
-            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-
-            # Select the token based on the stored rank
-            generated_token_id = sorted_indices[:, rank].item()
-            generated_tokens.append(generated_token_id)  
-
-            # Update the prefix by adding the newly generated token
-            token_prefix = torch.cat((token_prefix, torch.tensor([[generated_token_id]], device=device)), dim=1)
-
-            # Stop if the generated token is the end-of-sequence token
-            if generated_token_id == tokenizer.eos_token_id:
-                break
-
-        # Decode the generated token IDs into a text string
-        generated_texts.append(tokenizer.decode(generated_tokens, skip_special_tokens=True))
-
-    return generated_texts  
-
-
-
-# ===================================================================================================
-# ================================ OLD FUNCTIONS - NOT USED =========================================
-# ===================================================================================================
 
 
 # ====== parse_code_blocks ====== #
@@ -363,3 +186,49 @@ def compute_token_ranks_parallel(input_ids: torch.Tensor, model: torch.nn.Module
                 active_mask[seq_idx] = False  
 
     return rank_list
+
+
+
+# ====== regenerate_texts ====== #
+def compute_regenerate_texts(rank_list: List[List[int]], model: torch.nn.Module, 
+                     tokenizer: torch.nn.Module, device: str) -> List[str]:
+    """
+    Regenerate texts based on the rank list. \n
+    Input:
+    - rank_list: List of ranks for each sequence.
+    - model: Pre-trained language model.
+    - tokenizer: Tokenizer used to encode the input.
+    - device: Device to run the model on (e.g., 'cuda' or 'cpu'). \n
+    Return:
+    - generated_texts: List of regenerated texts.
+    """
+    generated_texts = []  
+     # Get the start token
+    start_token_id = tokenizer.bos_token_id or tokenizer.cls_token_id 
+
+    for seq_idx in range(len(rank_list)): 
+        generated_tokens = []  
+        token_prefix = torch.tensor([[start_token_id]], device=device)  # Start with the first token
+
+        for rank in rank_list[seq_idx]:  
+            # Predict the next token's probabilities
+            _, _, probs = predict_next_token(token_prefix, model, tokenizer)
+
+            # Sort token probabilities in descending order
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+
+            # Select the token based on the stored rank
+            generated_token_id = sorted_indices[:, rank].item()
+            generated_tokens.append(generated_token_id)  
+
+            # Update the prefix by adding the newly generated token
+            token_prefix = torch.cat((token_prefix, torch.tensor([[generated_token_id]], device=device)), dim=1)
+
+            # Stop if the generated token is the end-of-sequence token
+            if generated_token_id == tokenizer.eos_token_id:
+                break
+
+        # Decode the generated token IDs into a text string
+        generated_texts.append(tokenizer.decode(generated_tokens, skip_special_tokens=True))
+
+    return generated_texts 

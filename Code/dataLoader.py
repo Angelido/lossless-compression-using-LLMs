@@ -47,7 +47,11 @@ def create_chunk_dataloader(input_id_list: List[torch.Tensor], batch_size: int =
 
 
 # ====== preprocess_dataset_fast ====== #
-def preprocess_dataset_fast(input_texts: List[str], tokenizer: torch.nn.Module, max_length: int, stride: int = 0):
+def preprocess_dataset_fast(
+    input_texts: List[str], 
+    tokenizer: torch.nn.Module, 
+    max_length: int, 
+    stride: int = 0):
     '''
     Split a list of texts into chunks of token IDs using the tokenizer.
     
