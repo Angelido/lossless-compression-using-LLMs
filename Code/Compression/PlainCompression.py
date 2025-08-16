@@ -12,132 +12,137 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from utility import save_info_to_csv
 
-#============ all_path_end_with_py ============#
-def all_path_end_with_py(
-    df: pd.DataFrame, 
+
+#============ all_path_end_with_ext ============#
+def all_path_end_with_ext(
+    df: pd.DataFrame,
+    extension: str, 
     column: str = 'path'
 ) -> bool:
     """
-    Check if all entries in the specified DataFrame column end with '.py'.
+    Check if all entries in the specified DataFrame column end with '.extension'.
 
     Input:
-    - df (pd.DataFrame): pd.DataFrame containing at least the column `column`.
+    - df (pd.DataFrame): DataFrame containing at least the column `column`.
+    - extension (str): the extension to check for (without dot).
     - column (str): name of the column to check (default: 'path').
 
     Return:
-    - end_with_py (bool): True if all strings in df[column] end with '.py'; otherwise False.
+    - end_with_ext (bool): True if all strings in df[column] end with '.extension'; otherwise False.
     """
-    # 1) Assicuriamoci che la colonna esista
+    # Ensure the column exists
     if column not in df.columns:
-        raise KeyError(f"Colonna '{column}' non trovata nel DataFrame.")
+        raise KeyError(f"Column '{column}' not found in the DataFrame.")
     
-    # 2) Usiamo .str.endswith per ottenere una Serie di booleani
-    ends_with_py = df[column].astype(str).str.endswith('.py')
-    
-    # 3) Ritorniamo True solo se TUTTI i valori sono True
-    return ends_with_py.all()
+    # Use .str.endswith to create a boolean Series
+    ends_with_ext = df[column].astype(str).str.endswith(f'.{extension}')
+
+    return ends_with_ext.all()
 
 
-#============ invalid_py_paths ============#
-def invalid_py_paths(
+
+#============ invalid_ext_paths ============#
+def invalid_ext_paths(
     df: pd.DataFrame, 
+    extension: str,
     column: str = 'path'
 ) -> pd.Series:
     """
-    Return the entries of df[column] that do NOT end with '.py'.
+    Return the entries of df[column] that do not end with '.extension'.
     
     Input:
     - df (pd.DataFrame): pd.DataFrame containing at least the column `column`.
+    - extension (str): the extension to check for (without dot).
     - column (str): name of the column to check (default: 'path').
     
     Return:
-    - (pd.Series): series containing all values from df[column] that do not end with '.py'.
+    - (pd.Series): series containing all values from df[column] that do not end with '.extension'.
     """
+    # Ensure the column exists
     if column not in df.columns:
         raise KeyError(f"Column '{column}' not found in DataFrame.")
-    mask = ~df[column].astype(str).str.endswith('.py')
+    
+    # Create a mask for entries that do not end with the given extension
+    mask = ~df[column].astype(str).str.endswith(f'.{extension}')
+    
     return df.loc[mask, column]
 
 
 
 #============ fix_path ============#
 def fix_path(
-    path: str
+    path: str,
+    extension: str
 ) -> str:
     """
     Take a file path (e.g., '/dir/ file', '/dir/file.ext', '/dir/file.txt~', etc.) and return a path where:
     - All spaces are removed.
-    - If the final element (basename) has no '.', append '.py'
-    - Otherwise, replace the existing extension (everything after the last '.') with '.py'
+    - If the final element (basename) has no '.', append '.extension'
+    - Otherwise, replace the existing extension (everything after the last '.') with '.extension'
     
     Input:
     - path (str): original file path, possibly containing spaces or an unwanted extension.
+    - extension (str): the extension to use at the end of the path.
     
     Return:
-    - (str): cleaned file path ending with the '.py' extension.
+    - (str): cleaned file path ending with the '.extension' extension.
     """
 
-    # 1) Rimuoviamo tutti gli spazi dal path
+    # Remove all spaces from the path
     clean_path = path.replace(" ", "")
     
-    # 2) Separiamo directory e nome file
+    # Split directory and filename, and split base and extension
     dirpath, filename = os.path.split(clean_path)
-    
-    # 3) Usiamo os.path.splitext per dividere nome base e estensione
     base, ext = os.path.splitext(filename)
     
-    # 4) Costruiamo il nuovo filename:
-    if ext == "":
-        # Non c’era estensione: basta aggiungere ".py"
-        new_filename = base + ".py"
-    else:
-        # C’era un'estensione: togliamo l’ext e mettiamo ".py"
-        new_filename = base + ".py"
+    # Create the new filename with the desired extension
+    new_filename = base + f".{extension}"
     
-    # 5) Ricostruiamo il percorso completo (os.path.join ignorerà dirpath se è vuoto)
     return os.path.join(dirpath, new_filename)
 
 
 
 #============ invert_full_path ============#
 def invert_full_path(
-    path: str
+    path: str,
+    default_extension: str
 ) -> str:
     """
-    Given a path like '/folder1/ folder2 /name.py', return
-    'py.name/folder2/folder1/' after removing unnecessary spaces.
+    Given a path like '/folder1/ folder2 /name.extension', return
+    'extension.name/folder2/folder1/' after removing unnecessary spaces.
 
     Input:
     - path (str): original file path, possibly containing extra spaces or leading/trailing slashes.
+    - extension (str): fallback extension to use if the filename has no extension.
 
     Return:
-    - (str): inverted path composed of 'extension.basename/' followed by reversed directory segments, each separated by '/' and ending with a slash.
+    - (str): inverted path composed of 'extension.basename/' followed by reversed directory segments, 
+             each separated by '/' and ending with a slash.
     """
-    # 1) Rimuoviamo slash iniziali e finali
+    # Remove leading/trailing slashes
     cleaned = path.strip("/")
     
-    # 2) Splittiamo in segmenti e togliamo spazi attorno a ciascuno
+    # Split path into segments and strip spaces around each
     parts = [p.strip() for p in cleaned.split("/") if p.strip() != ""]
-    
     if not parts:
         return ""
     
-    # 3) Prendiamo il filename e lo ripuliamo di spazi
+    # Get the filename and strip spaces
     filename = parts[-1].strip()
     
-    # 4) Separiamo base ed estensione e li ripuliamo
+    # Separate basename and extension
     base, ext = os.path.splitext(filename)
-    ext_clean = ext.lstrip('.') if ext else "py"
+    ext_clean = ext.lstrip('.') if ext else default_extension
     base_clean = base.strip()
     
-    # 5) Creiamo la parte invertita "py.base"
+    # Create the 'extension.basename' part
     inverted_filename = f"{ext_clean}.{base_clean}"
     
-    # 6) Prendiamo e invertiamo le cartelle, togliendo spazi
+    # Reverse the cleaned directory parts
     dirs = [dir_part.strip() for dir_part in parts[:-1]]
     dirs_reversed = list(reversed(dirs))
     
-    # 7) Ricostruiamo il path invertito senza spazi o doppi slash
+    # Reconstruct the final inverted path
     if not dirs_reversed:
         return f"{inverted_filename}/"
     else:
@@ -152,7 +157,7 @@ def create_tar_from_texts(
 ) -> None:
     """
     Given a DataFrame with columns:
-    - `text`: Python file content (string)
+    - `text`: Code file content (string)
     - `inverted_path`: desired name (with directory structure) inside the archive (no trailing slash)
     Create a non-compressed .tar where each entry is built from df[`text`],
     using df[`inverted_path`] as the internal file path/name.
@@ -259,8 +264,8 @@ def compress_zstd(
 if __name__ == "__main__":
     
     # Variables to change during experiments
-    language = "Python"
-    suffix = ".py"
+    language = "CSharp"  # Change to the desired language
+    extension = "cs"  # Change to the desired file extension (e.g., "py", "java", "cpp", etc.)
     
     # Define output directories
     tar_dir = "Results/PlainText/Tar"
@@ -273,8 +278,10 @@ if __name__ == "__main__":
     # File names
     output_tar = os.path.join(tar_dir, f"all_{language}_sources.tar")
     output_bz2 = os.path.join(compressed_dir, f"all_{language}_sources_bzip2-3.bz2")
+    output_bz9 = os.path.join(compressed_dir, f"all_{language}_sources_bzip2-9.bz2")
     output_zstd3 = os.path.join(compressed_dir, f"all_{language}_sources_zstd3.zst")
     output_zstd12 = os.path.join(compressed_dir, f"all_{language}_sources_zstd12.zst")
+    output_zstd22 = os.path.join(compressed_dir, f"all_{language}_sources_zstd22.zst")
     
     # Load the dataset
     df = pd.read_csv(f"Dataset/{language}100MB.csv")
@@ -285,14 +292,14 @@ if __name__ == "__main__":
     start_text_preprocessing = time.perf_counter()
     
     # Apply path normalization
-    df['fixed_path'] = df['path'].apply(fix_path)
+    df['fixed_path'] = df['path'].apply(lambda p: fix_path(p, extension))
     
     # Check if there is an error during normalization
-    if not all_path_end_with_py(df, "fixed_path"):
-        raise ValueError("Error: Some entries in 'fixed_path' do not end with '.py'.")
+    if not all_path_end_with_ext(df, extension, "fixed_path"):
+        raise ValueError(f"Error: Some entries in 'fixed_path' do not end with '.{extension}'.")
     
     # Generate inverted paths and sort
-    df["inverted_path"] = df["fixed_path"].apply(invert_full_path)
+    df["inverted_path"] = df["fixed_path"].apply(lambda p: invert_full_path(p, extension))
     df = df.sort_values('inverted_path').reset_index(drop=True)
     
     end_text_preprocessing = time.perf_counter()
@@ -317,7 +324,19 @@ if __name__ == "__main__":
     
     end_bzip2 = time.perf_counter()
     time_bzip2 = end_bzip2 - start__bzip2 
-    total_time_bzip2=time_bzip2+time_create_tar+time_text_preprocessing   
+    total_time_bzip2=time_bzip2+time_create_tar+time_text_preprocessing
+    
+    #================ bzip2-9 compression ================#
+    
+    start__bzip2_9 = time.perf_counter()
+    
+    # Compress with bzip2 level 9
+    size_bytes_bz9 = compress_bz2(output_tar, output_bz9, compresslevel=9)
+    
+    end_bzip2_9 = time.perf_counter()
+    time_bzip2_9 = end_bzip2_9 - start__bzip2_9 
+    total_time_bzip2_9 = time_bzip2_9 + time_create_tar + time_text_preprocessing
+       
     
     #================ zstd3 compression ================#
     
@@ -341,10 +360,21 @@ if __name__ == "__main__":
     time_zstd12 = end_zstd12 - start__zstd12
     total_time_zstd12 = time_zstd12+time_text_preprocessing+time_create_tar
     
+    #================ zstd22 compression ================#
+    
+    start__zstd22 = time.perf_counter()
+    
+    # Compress with Zstandard level 22
+    size_bytes_zst22 = compress_zstd(output_tar, output_zstd22, compresslevel=22)
+    
+    end_zstd22 = time.perf_counter()
+    time_zstd22 = end_zstd22 - start__zstd22
+    total_time_zstd22 = time_zstd22 + time_text_preprocessing + time_create_tar
+    
     #================ saving results ================#
     
     info_dir = "Results"
-    csv_file = "Plain_text_compression_info.csv"
+    csv_file = "Plain_Compression_Info.csv"
     
     # Create a dictionary with the information of bzip2
     row_dict_bzip2 = {
@@ -357,6 +387,22 @@ if __name__ == "__main__":
         "total_time_s": round(total_time_bzip2, 4),
         "original_size_bytes": total_bytes,
         "compressed_size_bytes": size_bytes_bz2,
+        "throughput_MBps": round(total_bytes / total_time_bzip2 / (1024 * 1024), 4),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Create a dictionary with the information of bzip2-9
+    row_dict_bzip9 = {
+        "language": language,
+        "compression": "bzip2-9",
+        "output_file": output_bz9,
+        "text_preprocessing_time_s": round(time_text_preprocessing, 4),
+        "create_tar_time_s": round(time_create_tar, 4),
+        "compression_time_s": round(time_bzip2_9, 4),
+        "total_time_s": round(total_time_bzip2_9, 4),
+        "original_size_bytes": total_bytes,
+        "compressed_size_bytes": size_bytes_bz9,
+        "throughput_MBps": round(total_bytes / total_time_bzip2_9 / (1024 * 1024), 4),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -371,10 +417,11 @@ if __name__ == "__main__":
         "total_time_s": round(total_time_zstd3, 4),
         "original_size_bytes": total_bytes,
         "compressed_size_bytes": size_bytes_zst3,
+        "throughput_MBps": round(total_bytes / total_time_zstd3 / (1024 * 1024), 4),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     
-     # Create a dictionary with the information of zstd12
+    # Create a dictionary with the information of zstd12
     row_dict_zstd12 = {
         "language": language,
         "compression": "zstd12",
@@ -385,19 +432,42 @@ if __name__ == "__main__":
         "total_time_s": round(total_time_zstd12, 4),
         "original_size_bytes": total_bytes,
         "compressed_size_bytes": size_bytes_zst12,
+        "throughput_MBps": round(total_bytes / total_time_zstd12 / (1024 * 1024), 4),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Create a dictionary with the information of zstd22
+    row_dict_zstd22 = {
+        "language": language,
+        "compression": "zstd22",
+        "output_file": output_zstd22,
+        "text_preprocessing_time_s": round(time_text_preprocessing, 4),
+        "create_tar_time_s": round(time_create_tar, 4),
+        "compression_time_s": round(time_zstd22, 4),
+        "total_time_s": round(total_time_zstd22, 4),
+        "original_size_bytes": total_bytes,
+        "compressed_size_bytes": size_bytes_zst22,
+        "throughput_MBps": round(total_bytes / total_time_zstd22 / (1024 * 1024), 4),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     
     # Save row_dict on the csv
     save_info_to_csv(info_dir, csv_file, row_dict_bzip2)
+    save_info_to_csv(info_dir, csv_file, row_dict_bzip9)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd3)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd12)
+    save_info_to_csv(info_dir, csv_file, row_dict_zstd22)
     
     
     #================ print results on screen ================#
     
     print("=== End execution information of bzip2-3 compression ===")
     for key, value in row_dict_bzip2.items():
+        print(f"{key:25s}: {value}")
+    print("=======================================\n")
+    
+    print("=== End execution information of bzip2-9 compression ===")
+    for key, value in row_dict_bzip9.items():
         print(f"{key:25s}: {value}")
     print("=======================================\n")
     
@@ -408,5 +478,10 @@ if __name__ == "__main__":
     
     print("=== End execution information of zstd12 compression ===")
     for key, value in row_dict_zstd12.items():
+        print(f"{key:25s}: {value}")
+    print("=======================================\n")
+    
+    print("=== End execution information of zstd22 compression ===")
+    for key, value in row_dict_zstd22.items():
         print(f"{key:25s}: {value}")
     print("=======================================\n")
