@@ -55,10 +55,12 @@ def collect_model_stats(
             
             # Range percentages
             "pct_eq_0": pct["eq_0"],
-            "pct_0_5": pct["0_5"],
-            "pct_0_10": pct["0_10"],
-            "pct_0_20": pct["0_20"],
-            "pct_0_50": pct["0_50"],
+            "pct_0_1": pct["0_1"],
+            "pct_0_3": pct["0_3"],
+            "pct_0_7": pct["0_7"],
+            "pct_0_15": pct["0_15"],
+            "pct_0_31": pct["0_31"],
+            "pct_0_63": pct["0_63"],
             
             # Overall distribution
             "min_value": rank_results["min"],
@@ -101,11 +103,16 @@ if __name__ == "__main__":
         "CodeT5",
         "Gemma",
         "GemmaQuantized",
+        "Granite",
+        "GraniteCode",
+        "GraniteCodeQuantized",
         "Llama1B",
         "Llama1BQuantized",
         "Llama3B",
         "Llama3BQuantized",
         "Phi2",
+        "Qwen3",
+        "SmolLM3",
         "StarCoder2_4",
         "StarCoder2_8",
         "StarCoder2_16",
@@ -114,7 +121,6 @@ if __name__ == "__main__":
     ]
     extension = "_rank_list.txt"
     
-    # Collect model statistics
     df_stats = collect_model_stats(folder_path, model_names, extension)
     print(df_stats.head())
     

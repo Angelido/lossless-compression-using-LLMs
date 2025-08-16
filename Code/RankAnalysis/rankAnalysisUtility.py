@@ -140,10 +140,10 @@ def compute_range_percentages(
 
     Return:
     - Dict[str, float]: percentages for the keys:
-        'eq_0', '0_5', '0_10', '0_20', '0_50'
+        'eq_0', '0_1', '0_3', '0_7', '0_15', '0_31', '0_63'
     """
     if total_numbers <= 0:
-        return {key: 0.0 for key in ['eq_0', '0_5', '0_10', '0_20', '0_50']}
+        return {key: 0.0 for key in ['eq_0', '0_1', '0_3', '0_7', '0_15', '0_31', '0_63']}
 
     # count for exactly zero
     count_eq_0 = frequency.get(0, 0)
@@ -153,24 +153,31 @@ def compute_range_percentages(
         return sum(cnt for num, cnt in frequency.items() if 0 <= num <= upper)
 
     # compute counts
-    count_0_5 = count_upto(5)
-    count_0_10 = count_upto(10)
-    count_0_20 = count_upto(20)
-    count_0_50 = count_upto(50)
+    count_0_1 = count_upto(1)
+    count_0_3 = count_upto(3)
+    count_0_7 = count_upto(7)
+    count_0_15 = count_upto(15)
+    count_0_31 = count_upto(31)
+    count_0_63 = count_upto(63)
+    
 
     # compute percentages
     pct_eq_0 = (count_eq_0 / total_numbers) * 100
-    pct_0_5 = (count_0_5 / total_numbers) * 100
-    pct_0_10 = (count_0_10 / total_numbers) * 100
-    pct_0_20 = (count_0_20 / total_numbers) * 100
-    pct_0_50 = (count_0_50 / total_numbers) * 100
+    pct_0_1 = (count_0_1 / total_numbers) * 100
+    pct_0_3 = (count_0_3 / total_numbers) * 100
+    pct_0_7 = (count_0_7 / total_numbers) * 100
+    pct_0_15 = (count_0_15 / total_numbers) * 100
+    pct_0_31 = (count_0_31 / total_numbers) * 100
+    pct_0_63 = (count_0_63 / total_numbers) * 100
 
     return {
         'eq_0': pct_eq_0,
-        '0_5': pct_0_5,
-        '0_10': pct_0_10,
-        '0_20': pct_0_20,
-        '0_50': pct_0_50
+        '0_1': pct_0_1,
+        '0_3': pct_0_3,
+        '0_7': pct_0_7,
+        '0_15': pct_0_15,
+        '0_31': pct_0_31,
+        '0_63': pct_0_63
     }
     
 
