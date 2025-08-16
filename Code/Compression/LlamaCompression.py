@@ -6,20 +6,14 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import sys
 import os
 
-import zstandard as zstd
-import bz2
-import pickle
-import io
-
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
-from computeRank import compute_token_ranks_fast
+from computeRank import compute_token_ranks_fast_old
 from utility import (
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
-    save_rank_list_to_file,
     save_info_to_csv,
     compress_and_save
 )
@@ -103,7 +97,7 @@ print("After dataloader")
 start_compute_ranks = time.perf_counter()
 
 # Compute the rank list using the DataLoader
-rank_list = compute_token_ranks_fast(
+rank_list = compute_token_ranks_fast_old(
      dataloader,
      model,
      pad_token_id=PAD_TOKEN_ID,

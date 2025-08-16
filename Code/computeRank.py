@@ -1,14 +1,127 @@
-import pandas as pd
 import torch
 from torch.utils.data import DataLoader
-from torch.nn.functional import softmax
 from transformers import AutoModelForSeq2SeqLM
 from unixcoder import UniXcoder
-from typing import List, Tuple, Dict
+from typing import List, Dict, Tuple
+import time
+
+
+# =====================================================
+# This file provides utility functions to:
+# 1) compute token ranks for each file using the 
+#    selected LLM;
+# 2) perform the inverse operation (convert ranks 
+#    back to tokens).
+# =====================================================
 
 
 # ====== compute_token_ranks_fast ====== #
 def compute_token_ranks_fast(
+    dataloader: DataLoader,
+    model: torch.nn.Module,
+    pad_token_id: int,
+    device: str
+) -> Tuple[List[List[int]], Dict[str, float]]:
+    """
+    Vectorized computation of token ranks for a batch of sequences. This function processes the entire 
+    batch in parallel, leveraging the model's ability to compute logits for all tokens at once. 
+    
+    Version without -1s. For each chunk:
+    1) computes logits and obtains token ranks;
+    2) immediately filters out ranks where target_ids == pad_token_id using boolean indexing.
+
+    Input:
+    - dataloader (DataLoader): DataLoader containing batches of input_ids.
+    - model (torch.nn.Module): HuggingFace-like model that returns `outputs.logits`.
+    - pad_token_id (int): ID used for padding tokens.
+    - device (str): 'cuda' or 'cpu'.
+
+    Return:
+    - all_ranks (List[List[int]]): a list of lists of integers, with no -1 values.
+    - timings: dict with cumulative time spent per section (seconds).
+    """
+    model.eval()
+    all_ranks: List[List[int]] = []
+    
+    timers = {
+        "data_to_device": 0.0,
+        "forward_pass": 0.0,
+        "compute_target_logits": 0.0,
+        "compute_ranks": 0.0,
+        "filter_pad_tokens": 0.0,
+    }
+
+    with torch.no_grad():
+        for batch in dataloader:
+            
+            start = time.perf_counter()
+            
+            # (1) Move batch to device
+            input_ids = batch.to(device)
+            
+            timers["data_to_device"] += time.perf_counter() - start
+            
+            # (2) Forward pass: compute logits
+            start = time.perf_counter()
+            attention_mask = (input_ids != pad_token_id).long().to(device)  # [B, L]
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits = outputs.logits  # [B, L, V]
+            
+            timers["forward_pass"] += time.perf_counter() - start
+            
+            # (3) Align logits and targets (shifted by 1)
+            start = time.perf_counter()
+            logits_input = logits[:, :-1, :]   # predictions for positions [0 .. L-2]
+            target_ids   = input_ids[:, 1:]    # targets are shifted by one  
+
+            # Extract the logit corresponding to the true target token
+            target_logits = logits_input.gather(
+                dim=-1,
+                index=target_ids.unsqueeze(-1)
+            ).squeeze(-1)  # [B, L-1]                
+            
+            timers["compute_target_logits"] += time.perf_counter() - start
+            
+           # (4) Compute ranks of true tokens
+            start = time.perf_counter()
+            B, Lm1, V = logits_input.shape
+            token_ids = torch.arange(V, device=logits_input.device).view(1, 1, -1).expand(B, Lm1, V)  
+            # Sort by descending logit value; break ties by token ID
+            sort_keys = torch.stack([-logits_input, token_ids], dim=-1) 
+            sorted_indices = sort_keys.argsort(dim=-2)[..., 1]  # [B, L-1, V]
+            
+            # Find the position (rank) of each target token in the sorted list
+            target_ids_exp = target_ids.unsqueeze(-1)  
+            ranks = (sorted_indices == target_ids_exp).nonzero(as_tuple=False)[:, -1]
+            ranks = ranks.view(target_ids.shape)  # [B, L-1]
+                        
+            timers["compute_ranks"] += time.perf_counter() - start
+            
+            # (5) Remove padding tokens and collect results
+            start = time.perf_counter()
+            
+            mask_target = (target_ids != pad_token_id)  # [B, L-1]
+            valid_counts = mask_target.sum(dim=1).tolist()  # number of valid tokens per sequence
+            flat_valid = ranks[mask_target]     # concatenated valid ranks
+            split_ranks = torch.split(flat_valid, valid_counts)  # split back into sequences
+
+            for seq_tensor in split_ranks:
+                all_ranks.append(seq_tensor.tolist())
+            
+            timers["filter_pad_tokens"] += time.perf_counter() - start
+
+    return all_ranks, timers
+
+
+
+# ===================================================================================================
+# ================================ OLD FUNCTIONS - NOT USED =========================================
+# ===================================================================================================
+
+
+
+# ====== compute_token_ranks_fast_old ====== #
+def compute_token_ranks_fast_old(
     dataloader: DataLoader,
     model: torch.nn.Module,
     pad_token_id: int,
@@ -80,9 +193,8 @@ def compute_token_ranks_fast(
     return all_ranks
 
 
-
 # ====== compute_token_ranks_fast_unixcoder ====== #
-def compute_token_ranks_fast_unixcoder(
+def compute_token_ranks_fast_unixcoder_old(
     dataloader: DataLoader,
     ux: UniXcoder,
     pad_token_id: int,
@@ -146,7 +258,6 @@ def compute_token_ranks_fast_unixcoder(
                 all_ranks.append(valid_ranks)
 
     return all_ranks
-
 
 
 # ===== compute_token_ranks_fast_seq2seq ====== #
@@ -223,299 +334,5 @@ def compute_token_ranks_fast_seq2seq(
             for seq_ranks, mask in zip(ranks.tolist(), decoder_attention_mask.tolist()):
                 effective_length = sum(mask)
                 all_ranks.append(seq_ranks[:effective_length])
-
-    return all_ranks
-
-
-def reconstruct_texts_from_rank_lists(
-    sorted_rank_lists: List[List[int]],
-    model,
-    tokenizer,
-    batch_size: int,
-    max_length: int,
-    device: str = "cuda"
-) -> Dict[int, str]:
-    """
-    Vectorized reconstruction dei testi a partire dalle liste di rank:
-    - Elabora in batch di dimensione batch_size
-    - Per ogni passo temporale, genera in parallelo i token per tutto il batch
-    - Reset del contesto a [BOS] quando raggiunge max_length
-    """
-    model.eval()
-    reconstructed: Dict[int, str] = {}
-    bos_id = tokenizer.bos_token_id
-    total = len(sorted_rank_lists)
-
-    # Processa batch per batch
-    for batch_start in range(0, total, batch_size):
-        batch = sorted_rank_lists[batch_start:batch_start + batch_size]
-        bsz = len(batch)
-
-        # Lunghezze delle sequenze di rank e massima lunghezza in questo batch
-        lengths = torch.tensor([len(r) for r in batch], device=device)
-        max_seq = int(lengths.max().item())
-
-        # Crea tensor di rank padded: [bsz, max_seq]
-        ranks_tensor = torch.zeros((bsz, max_seq), dtype=torch.long, device=device)
-        for i, r in enumerate(batch):
-            ranks_tensor[i, :len(r)] = torch.tensor(r, dtype=torch.long, device=device)
-
-        # Inizializza contesto e posizioni
-        context = torch.full((bsz, 1), bos_id, dtype=torch.long, device=device)
-        positions = torch.zeros(bsz, dtype=torch.long, device=device)
-
-        # Accumulatore per token generati
-        generated = torch.full((bsz, max_seq), bos_id, dtype=torch.long, device=device)
-
-        # Itera passo a passo lungo la dimensione max_seq
-        for t in range(max_seq):
-            # Forward sul contesto corrente
-            outputs = model(input_ids=context)
-            last_logits = outputs.logits[:, -1, :]  # [bsz, V]
-            probs = softmax(last_logits, dim=-1)    # [bsz, V]
-
-            # Estrai i rank in questo passo per ciascuna sequenza
-            current_ranks = ranks_tensor[:, t]     # [bsz]
-            active = (t < lengths)                 # mask booleano [bsz]
-
-            # Calcola topk una sola volta fino al massimo rank attivo
-            R_max = int(current_ranks.max().item())
-            topk_vals, topk_inds = torch.topk(probs, k=R_max + 1, dim=-1)  # [bsz, R_max+1]
-
-            # Ottieni next_tokens vectorizzato: [bsz]
-            next_tokens = topk_inds[torch.arange(bsz, device=device), current_ranks]
-            # Per le posizioni non attive, rimani BOS
-            next_tokens = torch.where(active, next_tokens, torch.full_like(next_tokens, bos_id))
-
-            # Appendi al contesto e al generato
-            context = torch.cat([context, next_tokens.unsqueeze(1)], dim=1)
-            generated[:, t] = next_tokens
-
-            # Reset contesto se supera max_length
-            if context.size(1) >= max_length:
-                context = torch.full((bsz, 1), bos_id, dtype=torch.long, device=device)
-
-        # Decode batch e salva
-        for i in range(bsz):
-            orig_idx = batch_start + i
-            # Prendi solo fino a lengths[i]
-            token_seq = generated[i, :lengths[i]].tolist()
-            text = tokenizer.decode(token_seq, skip_special_tokens=True)
-            reconstructed[orig_idx] = text
-
-    return reconstructed
-
-
-def reconstruct_texts_from_rank_lists_precision(
-    sorted_rank_lists: List[List[int]],
-    model,
-    tokenizer,
-    batch_size: int,
-    max_length: int,
-    device: str = "cuda"
-) -> Dict[int, str]:
-    model.eval()
-    reconstructed: Dict[int, str] = {}
-    bos_id = tokenizer.bos_token_id
-    total = len(sorted_rank_lists)
-
-    for batch_start in range(0, total, batch_size):
-        batch = sorted_rank_lists[batch_start:batch_start + batch_size]
-        bsz = len(batch)
-        lengths = torch.tensor([len(r) for r in batch], device=device)
-        max_seq = int(lengths.max().item())
-
-        ranks_tensor = torch.zeros((bsz, max_seq), dtype=torch.long, device=device)
-        for i, r in enumerate(batch):
-            ranks_tensor[i, :len(r)] = torch.tensor(r, dtype=torch.long, device=device)
-
-        # inizio contesto
-        context = torch.full((bsz, 1), bos_id, dtype=torch.long, device=device)
-        generated = torch.full((bsz, max_seq), bos_id, dtype=torch.long, device=device)
-
-        for t in range(max_seq):
-            # --- forward e cast logits a float32 ---
-            outputs = model(input_ids=context)
-            last_logits = outputs.logits[:, -1, :].float()  # [bsz, V]
-            probs = softmax(last_logits, dim=-1)            # [bsz, V]
-
-            current_ranks = ranks_tensor[:, t]               # [bsz]
-            active = (t < lengths)                           # [bsz]
-
-            # --- ORDINA TUTTO il vocabolario (argsort) invece di topk ---
-            sorted_inds = torch.argsort(probs, dim=-1, descending=True)  # [bsz, V]
-            next_tokens = sorted_inds[torch.arange(bsz, device=device), current_ranks]
-
-            # per posizioni inattive
-            next_tokens = torch.where(active,
-                                      next_tokens,
-                                      torch.full_like(next_tokens, bos_id))
-
-            context = torch.cat([context, next_tokens.unsqueeze(1)], dim=1)
-            generated[:, t] = next_tokens
-
-            if context.size(1) >= max_length:
-                context = torch.full((bsz, 1), bos_id, dtype=torch.long, device=device)
-
-        # decode
-        for i in range(bsz):
-            orig_idx = batch_start + i
-            token_seq = generated[i, :lengths[i]].tolist()
-            text = tokenizer.decode(token_seq, skip_special_tokens=True)
-            reconstructed[orig_idx] = text
-
-    return reconstructed
-
-
-
-# ===================================================================================================
-# ================================ OLD FUNCTIONS - NOT USED =========================================
-# ===================================================================================================
-
-
-
-# ====== compute_token_ranks_fast_old ====== #
-def compute_token_ranks_fast_old(
-    dataloader: DataLoader,
-    model: torch.nn.Module,
-    pad_token_id: int,
-    device: str
-) -> List[List[int]]:
-    """
-    Vectorized computation of token ranks for a batch of sequences. 
-    This function processes the entire batch in parallel, leveraging the model's ability to compute logits for all tokens at once. 
-
-    Inputs:
-    - dataloader: DataLoader containing the input sequences.
-    - model: Pre-trained language model.
-    - pad_token_id: ID of the padding token.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu'). 
-    
-    Return:
-    - all_ranks: List of ranks for each sequence in the batch.
-    """
-    model.eval()
-    all_ranks = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch.to(device) # [B, L]
-            # Create attention mask 1s for non-padding tokens
-            attention_mask = (input_ids != pad_token_id).long().to(device)
-
-            # Vectorized forward pass
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits  # [B, L, V]
-
-            # We need to shift the logits to align with the target tokens
-            vocab_size = logits.size(-1)
-            logits_input = logits[:, :-1, :]               # [B, L-1, V]
-            target_ids   = input_ids[:, 1:]                # [B, L-1]
-
-            # Compute the logits for the target tokens
-            target_logits = logits_input.gather(
-                dim=-1,
-                index=target_ids.unsqueeze(-1)
-            ).squeeze(-1)                               # [B, L-1]
-
-            # Compute ranks
-            ranks = (logits_input > target_logits.unsqueeze(-1)).sum(dim=-1)  # [B, L-1]
-
-            # Set ranks to -1 for padding tokens
-            ranks = ranks.masked_fill(target_ids == pad_token_id, -1)
-
-            # Convert ranks to a list
-            for seq_ranks, mask in zip(ranks.tolist(), attention_mask[:,1:].tolist()):
-                effective_len = sum(mask)
-                all_ranks.append(seq_ranks[:effective_len])
-
-    return all_ranks
-
-
-
-# ====== compute_token_ranks_fast_unixcoder_old ====== #
-def compute_token_ranks_fast_unixcoder_old(
-    dataloader: DataLoader, 
-    ux: UniXcoder, 
-    pad_token_id: int, 
-    device: str
-) -> List[List[int]]:
-    """
-    Vectorized computation of token ranks for a batch of sequences using UniXcoder.
-    This function processes the entire batch in parallel, leveraging the model's ability to compute logits for all tokens at once.
-    
-    Inputs:
-    - dataloader: DataLoader containing the input sequences.
-    - ux: Pre-trained UniXcoder model.
-    - pad_token_id: ID of the padding token.
-    - device: Device to run the model on (e.g., 'cuda' or 'cpu').
-    
-    Return:
-    - all_ranks: List of ranks for each sequence in the batch.
-    """
-    # Set the model to evaluation mode
-    ux.eval()
-    all_ranks = []
-    
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch.to(device)
-            # Create attention mask 1s for non-padding tokens
-            mask = (input_ids != pad_token_id).to(device)
-            # Vectorized forward pass
-            token_embs, _ = ux(input_ids)
-            # logits = V x H → [B, L, V]
-            logits = ux.lm_head(token_embs)
-            # Obtain the logits for the target tokens
-            logits_input = logits[:, :-1, :]
-            target_ids  = input_ids[:, 1:]
-            target_logits = logits_input.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
-            ranks = (logits_input > target_logits.unsqueeze(-1)).sum(-1)
-            ranks = ranks.masked_fill(target_ids == pad_token_id, -1)
-            for seq_ranks, m in zip(ranks.tolist(), mask[:,1:].tolist()):
-                eff = sum(m)
-                all_ranks.append(seq_ranks[:eff])
-    return all_ranks
-
-
-
-# ====== compute_token_ranks_fast_precision ====== #
-def compute_token_ranks_fast_precision(
-    dataloader: DataLoader,
-    model: torch.nn.Module,
-    pad_token_id: int,
-    device: str
-) -> List[List[int]]:
-    model.eval()
-    all_ranks = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            input_ids = batch.to(device)
-            attention_mask = (input_ids != pad_token_id).long().to(device)
-
-            # --- forward ---
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            # FORZA float32
-            logits = outputs.logits.float()           # [B, L, V]
-
-            # shift per i target
-            logits_input = logits[:, :-1, :]          # [B, L-1, V]
-            target_ids   = input_ids[:, 1:]           # [B, L-1]
-
-            # --- estrai i logit del target ---
-            target_logits = logits_input.gather(
-                dim=-1,
-                index=target_ids.unsqueeze(-1)
-            ).squeeze(-1)                             # [B, L-1]
-
-            # --- calcolo dei rank ---
-            ranks = (logits_input > target_logits.unsqueeze(-1)).sum(dim=-1)  # [B, L-1]
-            ranks = ranks.masked_fill(target_ids == pad_token_id, -1)
-
-            # raccogli in lista
-            for seq_ranks, mask in zip(ranks.tolist(), attention_mask[:,1:].tolist()):
-                eff_len = sum(mask)
-                all_ranks.append(seq_ranks[:eff_len])
 
     return all_ranks
