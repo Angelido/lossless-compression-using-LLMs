@@ -2,14 +2,19 @@ import pandas as pd
 import time
 import torch
 from awq import AutoAWQForCausalLM
+import sys
+import os
 from transformers import AutoTokenizer
+
+# Read also files from the parent folder (utility, dataLoader, computeRank)   
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
+from computeRank import compute_token_ranks_fast
 from utility import ( 
     save_rank_list_to_file,
-    regenerate_texts,
     count_nonpad_tokens_per_row, 
     sort_chunks_by_length, 
-    compute_token_ranks_fast
 )
 
 # Login to Hugging Face Hub
@@ -102,6 +107,3 @@ save_rank_list_to_file(
     execution_time=execution_time,
     model_name=model_name  
 )
-
-# Regenerate texts based on the rank list
-# generated_texts = regenerate_texts(rank_list, model, tokenizer, device)
