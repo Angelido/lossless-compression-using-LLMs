@@ -4,6 +4,7 @@ from transformers import AutoModelForSeq2SeqLM
 from unixcoder import UniXcoder
 from typing import List, Dict, Tuple
 import time
+from tqdm import tqdm
 
 
 # =====================================================
@@ -225,7 +226,9 @@ def decode_token_ids_from_ranks(
     max_length: int,
     pad_token_id: int,
     device: str = "cuda",
-    debug: bool = True
+    debug: bool = True,
+    show_progress: bool = True,
+    inner_progress: bool = False
 ) -> Dict[int, List[int]]:
     """
     Decode token IDs from sequences of ranks without converting back to text,
@@ -239,6 +242,8 @@ def decode_token_ids_from_ranks(
     - pad_token_id (int): ID used for padding.
     - device (str): Either "cuda" or "cpu".
     - debug (bool): If True, prints detailed information for each decoding step.
+    - show_progress (bool): if True shows outer tqdm over chunks.
+    - inner_progress (bool): if True shows inner tqdm over steps inside each chunk.
 
     Return:
     - Dict[int, List[int]]: A mapping from sequence index to the list of 
@@ -249,11 +254,23 @@ def decode_token_ids_from_ranks(
     decoded_token_ids: Dict[int, List[int]] = {}
 
     with torch.no_grad():
-        for idx, rank_list in enumerate(rank_sequences):
+        
+        # Outer loop with optional tqdm
+        outer_iter = rank_sequences
+        if show_progress:
+            outer_iter = tqdm(rank_sequences, desc="Chunks", unit="chunk")
+                
+        for idx, rank_list in enumerate(outer_iter):
             token_ids = []
             context = [bos_token_id]
 
-            for t, rank in enumerate(rank_list):
+            # Inner iterator (optional tqdm)
+            if show_progress and inner_progress:
+                inner_iter = enumerate(tqdm(rank_list, desc=f"Steps chunk {idx}", leave=False, unit="step"))
+            else:
+                inner_iter = enumerate(rank_list)
+
+            for t, rank in inner_iter:
                 input_tensor = torch.tensor([context], dtype=torch.long).to(device)
                 attention_mask = (input_tensor != pad_token_id).long()
                 outputs = model(input_ids=input_tensor, attention_mask=attention_mask)
