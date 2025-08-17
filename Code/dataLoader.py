@@ -1,7 +1,7 @@
 from torch.utils.data import DataLoader, Dataset
 import torch
 from unixcoder import UniXcoder
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 
 # =====================================================
@@ -60,28 +60,29 @@ def create_chunk_dataloader(
 
 # ====== preprocess_dataset_fast ====== #
 def preprocess_dataset_fast(
-    input_texts: List[str], 
-    tokenizer: torch.nn.Module, 
-    max_length: int, 
+    input_texts: List[str],
+    tokenizer: torch.nn.Module,
+    max_length: int,
     stride: int = 0
-) -> tuple[List[torch.Tensor], Dict[int, List[int]]]:
-    '''
-    Split a list of texts into chunks of token IDs using the tokenizer.
-    
+) -> Tuple[List[torch.Tensor], Dict[int, List[int]]]:
+    """
+    Use the tokenizer with return_overflowing_tokens to create content chunks
+    (each of length `max_length`), then manually insert BOS at the beginning
+    of every chunk. Returns tensors of length max_length + 1.
+
     Input:
-    - input_texts (List[str]): List of raw text inputs (e.g., from a dataset).
-    - tokenizer: Tokenizer used for text processing.
-    - max_length (int): Maximum number of tokens per chunk.
-    - stride (int): Stride for overlapping chunks (default=0). 
-    
+    - input_texts (List[str]): list of raw text strings to be chunked.
+    - tokenizer (torch.nn.Module): the Hugging Face tokenizer to use.
+    - max_length (int): number of content tokens per chunk (excluding BOS).
+    - stride (int): tokenizer stride (overlap) applied to content tokens.
+
     Return:
-    - all_input_ids (List[torch.Tensor]): List of tokenized input IDs for each chunk.
-    - mapping (Dict[int, List[int]]): Mapping from original row index to indices of its chunks
-      in `all_input_ids`.
-    '''
-    
+    - all_input_ids (List[torch.Tensor]): list of torch.Tensor, each tensor has length max_length + 1 (BOS + content)
+    - mapping (Dict[int, List[int]]): dict mapping original sample index -> list of chunk indices in all_input_ids
+    """
     tokenizer.padding_side = "right"
-    
+
+    # Tokenize with overflow but without special tokens (we'll add BOS afterwards)
     enc = tokenizer(
         input_texts,
         return_overflowing_tokens=True,
@@ -90,12 +91,27 @@ def preprocess_dataset_fast(
         stride=stride,
         return_attention_mask=False,
         return_token_type_ids=False,
-        padding="max_length"
+        padding="max_length",
+        add_special_tokens=False
     )
-    # Convert the input IDs to tensors
-    all_input_ids = [torch.tensor(ids, dtype=torch.long) for ids in enc["input_ids"]]
 
-    # Create a mapping from original row index to chunk indices
+    # Determine BOS id (fallback to eos/cls if necessary)
+    bos_id = getattr(tokenizer, "bos_token_id", None)
+    if bos_id is None:
+        bos_id = getattr(tokenizer, "eos_token_id", None)
+    if bos_id is None:
+        bos_id = getattr(tokenizer, "cls_token_id", None)
+    if bos_id is None:
+        raise ValueError("Tokenizer does not have a bos/eos/cls token id defined.")
+
+    # Convert to tensors and prepend BOS
+    raw_input_ids = enc["input_ids"]  # each has length `max_length` (padded)
+    all_input_ids: List[torch.Tensor] = []
+    for ids in raw_input_ids:
+        new_ids = [bos_id] + ids  # resulting length = max_length + 1
+        all_input_ids.append(torch.tensor(new_ids, dtype=torch.long))
+
+    # Build mapping 
     mapping: Dict[int, List[int]] = {}
     for chunk_idx, orig_idx in enumerate(enc["overflow_to_sample_mapping"]):
         mapping.setdefault(orig_idx, []).append(chunk_idx)
@@ -168,6 +184,52 @@ def preprocess_dataset_fast_unixcoder(
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
+
+
+
+# ====== preprocess_dataset_fast_old ====== #
+def preprocess_dataset_fast_old(
+    input_texts: List[str], 
+    tokenizer: torch.nn.Module, 
+    max_length: int, 
+    stride: int = 0
+) -> tuple[List[torch.Tensor], Dict[int, List[int]]]:
+    '''
+    Split a list of texts into chunks of token IDs using the tokenizer.
+    
+    Input:
+    - input_texts (List[str]): List of raw text inputs (e.g., from a dataset).
+    - tokenizer: Tokenizer used for text processing.
+    - max_length (int): Maximum number of tokens per chunk.
+    - stride (int): Stride for overlapping chunks (default=0). 
+    
+    Return:
+    - all_input_ids (List[torch.Tensor]): List of tokenized input IDs for each chunk.
+    - mapping (Dict[int, List[int]]): Mapping from original row index to indices of its chunks
+      in `all_input_ids`.
+    '''
+    
+    tokenizer.padding_side = "right"
+    
+    enc = tokenizer(
+        input_texts,
+        return_overflowing_tokens=True,
+        truncation=True,
+        max_length=max_length,
+        stride=stride,
+        return_attention_mask=False,
+        return_token_type_ids=False,
+        padding="max_length"
+    )
+    # Convert the input IDs to tensors
+    all_input_ids = [torch.tensor(ids, dtype=torch.long) for ids in enc["input_ids"]]
+
+    # Create a mapping from original row index to chunk indices
+    mapping: Dict[int, List[int]] = {}
+    for chunk_idx, orig_idx in enumerate(enc["overflow_to_sample_mapping"]):
+        mapping.setdefault(orig_idx, []).append(chunk_idx)
+
+    return all_input_ids, mapping
 
 
 
