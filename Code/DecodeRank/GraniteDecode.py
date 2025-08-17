@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer
-from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 import sys
 import os
 
@@ -31,24 +30,31 @@ from utility import (
 # =========================
 
 # Model name
-model_name = "PrunaAI/google-codegemma-2b-AWQ-4bit-smashed"
+model_name = "PrunaAI/ibm-granite-granite-3b-code-base-bnb-4bit-smashed"
 language = "Python"  
 batch_size = 16
-max_length = 128
+max_length = 256
+
+# Configuration for the quantized model
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4",  # Also "fp4"
+    bnb_4bit_compute_dtype=torch.bfloat16
+)
 
 # Model tokenizer
-tokenizer = AutoTokenizer.from_pretrained("google/codegemma-2b")
+tokenizer = AutoTokenizer.from_pretrained("ibm-granite/granite-3b-code-base")
 
-# Set the pad token to the end of the sequence if it is not already set
+# Set the pad token to the end of the sequence
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 PAD_TOKEN_ID = tokenizer.pad_token_id  
 
-model = AutoAWQForCausalLM.from_quantized(
-    model_name,
-    fuse_layers=True,
-    trust_remote_code=True,
-    safetensors=True
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, 
+    trust_remote_code=True, 
+    quantization_config=bnb_config
 )
 
 # Print information about special token on screen

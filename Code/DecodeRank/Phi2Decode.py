@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 import time
 import torch
-from transformers import AutoTokenizer
-from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import sys
 import os
 
@@ -31,25 +30,18 @@ from utility import (
 # =========================
 
 # Model name
-model_name = "PrunaAI/google-codegemma-2b-AWQ-4bit-smashed"
+model_name = "microsoft/phi-2"
 language = "Python"  
 batch_size = 16
-max_length = 128
+max_length = 256
 
 # Model tokenizer
-tokenizer = AutoTokenizer.from_pretrained("google/codegemma-2b")
+tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", trust_remote_code=True)
 
-# Set the pad token to the end of the sequence if it is not already set
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
+# Set the pad token to the end of the sequence
+tokenizer.pad_token = tokenizer.eos_token 
 PAD_TOKEN_ID = tokenizer.pad_token_id  
-
-model = AutoAWQForCausalLM.from_quantized(
-    model_name,
-    fuse_layers=True,
-    trust_remote_code=True,
-    safetensors=True
-)
 
 # Print information about special token on screen
 info=get_token_info(tokenizer)

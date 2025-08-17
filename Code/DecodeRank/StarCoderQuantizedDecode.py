@@ -62,6 +62,7 @@ for key, value in info.items():
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
+model.to(device)
 print("device=", device)
 
 # Read dataset and save information
