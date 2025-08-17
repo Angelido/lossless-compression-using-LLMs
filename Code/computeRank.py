@@ -217,6 +217,93 @@ def compute_token_ranks_fast_unixcoder(
 
 
 
+# ===== decode_from_ranks ===== #
+def decode_token_ids_from_ranks(
+    rank_sequences: List[List[int]],
+    model: torch.nn.Module,
+    tokenizer: torch.nn.Module,
+    max_length: int,
+    pad_token_id: int,
+    device: str = "cuda",
+    debug: bool = True
+) -> Dict[int, List[int]]:
+    """
+    Decode token IDs from sequences of ranks without converting back to text,
+    processing one sequence at a time.
+
+    Input:
+    - rank_sequences (List[List[int]]): List of rank sequences (one per chunk).
+    - model (torch.nn.Module): HuggingFace-compatible language model.
+    - tokenizer (torch.nn.Module): Corresponding tokenizer.
+    - max_length (int): Maximum chunk length (including BOS).
+    - pad_token_id (int): ID used for padding.
+    - device (str): Either "cuda" or "cpu".
+    - debug (bool): If True, prints detailed information for each decoding step.
+
+    Return:
+    - Dict[int, List[int]]: A mapping from sequence index to the list of 
+        decoded token IDs (excluding BOS).
+    """
+    model.eval()
+    bos_token_id = getattr(tokenizer, "bos_token_id", tokenizer.eos_token_id)
+    decoded_token_ids: Dict[int, List[int]] = {}
+
+    with torch.no_grad():
+        for idx, rank_list in enumerate(rank_sequences):
+            token_ids = []
+            context = [bos_token_id]
+
+            for t, rank in enumerate(rank_list):
+                input_tensor = torch.tensor([context], dtype=torch.long).to(device)
+                attention_mask = (input_tensor != pad_token_id).long()
+                outputs = model(input_ids=input_tensor, attention_mask=attention_mask)
+
+                logits = outputs.logits[0, -1]  # last-step logits
+                
+                vocab_size = logits.shape[0]
+                token_ids_range = torch.arange(vocab_size, device=logits.device)
+
+                # Stable sort: first by descending logit, then by ascending token_id
+                sort_keys = torch.stack([-logits, token_ids_range], dim=1)  # [V, 2]
+                sorted_indices = torch.argsort(sort_keys, dim=0)[..., 1]  
+                
+                predicted_token_id = sorted_indices[rank].item()
+
+                token_ids.append(predicted_token_id)
+                context.append(predicted_token_id)
+
+                if debug:
+                    print(f"[Sample {idx} - Step {t}]")
+                    print(f"  Requested rank: {rank}")
+                    print(f"  Predicted token ID: {predicted_token_id}")
+                    print(f"  Predicted token: '{tokenizer.decode([predicted_token_id])}'")
+                    
+                    # Display surrounding ranks for context
+                    window = 3
+                    start = max(0, rank - window)
+                    end = min(len(sorted_indices), rank + window + 1)
+
+                    surrounding_ranks = list(range(start, end))
+                    surrounding_token_ids = sorted_indices[start:end].tolist()
+                    surrounding_tokens = [tokenizer.decode([tid]) for tid in surrounding_token_ids]
+                    surrounding_logits = logits[sorted_indices[start:end]].tolist()
+
+                    print("  Tokens around requested rank (±3):")
+                    for i, r in enumerate(surrounding_ranks):
+                        tag = " <==" if r == rank else ""
+                        print(f"    Rank {r:>4}: ID {surrounding_token_ids[i]:>6} → '{surrounding_tokens[i]}' | Logit: {surrounding_logits[i]:>10.4f}{tag}")
+                    print()
+
+                if len(context) == max_length:
+                    # Reset context for the next chunk (starting with BOS)
+                    context = [bos_token_id]  
+
+            decoded_token_ids[idx] = token_ids
+
+    return decoded_token_ids
+
+
+
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
