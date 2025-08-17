@@ -181,7 +181,7 @@ def preprocess_dataset_fast_unixcoder(
 
 
 # ====== get_token_info ====== #
-def get_token_info(tokenizer):
+def get_token_info(tokenizer: torch.nn.Module):
     """
     Retrieve basic special-token IDs and their textual representations from a Hugging Face tokenizer.
 
