@@ -151,7 +151,7 @@ def compute_token_ranks_fast_unixcoder(
     with torch.no_grad():
         for batch in dataloader:
             
-             # === Move batch to device ===
+            # === Move batch to device ===
             input_ids = batch.to(device)
             
             # === Inference (causal forward pass) ===
