@@ -39,7 +39,10 @@ class ChunkDataset(Dataset):
 
 
 # ====== create_chunk_dataloader ====== #
-def create_chunk_dataloader(input_id_list: List[torch.Tensor], batch_size: int = 8) -> DataLoader:
+def create_chunk_dataloader(
+    input_id_list: List[torch.Tensor], 
+    batch_size: int = 8
+) -> DataLoader:
     '''
     Create a DataLoader for the given list of tokenized input IDs. 
     
@@ -60,7 +63,8 @@ def preprocess_dataset_fast(
     input_texts: List[str], 
     tokenizer: torch.nn.Module, 
     max_length: int, 
-    stride: int = 0):
+    stride: int = 0
+) -> tuple[List[torch.Tensor], Dict[int, List[int]]]:
     '''
     Split a list of texts into chunks of token IDs using the tokenizer.
     
@@ -101,10 +105,12 @@ def preprocess_dataset_fast(
 
 
 # ====== preprocess_dataset_fast_unixcoder ====== #
-def preprocess_dataset_fast_unixcoder(input_texts: List[str],
-                                      ux: UniXcoder,
-                                      max_length: int,
-                                      stride: int = 0):
+def preprocess_dataset_fast_unixcoder(
+    input_texts: List[str],
+    ux: UniXcoder,
+    max_length: int,
+    stride: int = 0
+) -> tuple[List[torch.Tensor], Dict[int, List[int]]]:
     """
     Preprocess a list of texts into chunks of token IDs using the UniXcoder tokenizer.
     
@@ -119,23 +125,44 @@ def preprocess_dataset_fast_unixcoder(input_texts: List[str],
     - mapping (Dict[int, List[int]]): Mapping from original row index to indices of its chunks
       in `all_input_ids`.
     """
-    # Set the padding side to the right
-    ux.tokenizer.padding_side = "right"
+
+    assert max_length < 1024, "UniXcoder supports up to 1024 tokens"
+    assert stride < max_length, "Stride must be smaller than max_length"
     
-    # Tokenize the input texts
-    all_ids = ux.tokenize(input_texts,
-                           mode="<decoder-only>",
-                           max_length=max_length,
-                           padding=True)
+    tokenizer = ux.tokenizer
+    tokenizer.padding_side = "right"
+    prefix = [tokenizer.cls_token]
+    prefix_len = 1
+    prefix_ids = tokenizer.convert_tokens_to_ids(prefix)
+    available_len = max_length - prefix_len
     
-    # Create a mapping from original row index to chunk indices
+    all_input_ids = []
     mapping: Dict[int, List[int]] = {}
-    for idx, ids in enumerate(all_ids):
-        mapping.setdefault(idx, []).append(idx)
-    # Convert the input IDs to tensors
-    all_input_ids = [torch.tensor(ids, dtype=torch.long) for ids in all_ids]
+    chunk_counter = 0
+    
+    for idx, text in enumerate(input_texts):
+        # Tokenize the entire input (no truncation)
+        full_tokens = tokenizer.tokenize(text)
+        full_ids = tokenizer.convert_tokens_to_ids(full_tokens)
+
+        start = 0
+        while start < len(full_ids):
+            end = min(start + available_len, len(full_ids))
+            chunk_ids = prefix_ids + full_ids[start:end]
+            # Pad if needed
+            if len(chunk_ids) < max_length:
+                pad_id = ux.config.pad_token_id
+                chunk_ids += [pad_id] * (max_length - len(chunk_ids))
+            # Append result
+            all_input_ids.append(torch.tensor(chunk_ids, dtype=torch.long))
+            mapping.setdefault(idx, []).append(chunk_counter)
+            chunk_counter += 1
+            if end == len(full_ids):
+                break
+            start += (available_len - stride)
     
     return all_input_ids, mapping
+
 
 
 # ===================================================================================================
