@@ -181,6 +181,46 @@ def preprocess_dataset_fast_unixcoder(
 
 
 
+def get_token_info(tokenizer):
+    """
+    Retrieve basic special-token IDs and their textual representations from a Hugging Face tokenizer.
+
+    Returns a dictionary with:
+      - 'bos_id'   : integer id of BOS token or None
+      - 'eos_id'   : integer id of EOS token or None
+      - 'cls_id'   : integer id of CLS token or None
+      - 'pad_id'   : integer id of PAD token or None
+      - 'bos_token': string representation of the BOS token (or None)
+      - 'pad_token': string representation of the PAD token (or None)
+
+    The function uses `getattr` to safely query token attributes and `convert_ids_to_tokens`
+    to map an id back to a textual token. Any exceptions during conversion are caught and
+    result in None for the textual token.
+    """
+    info = {}
+    # Try to get common special token ids; return None if not present
+    info['bos_id'] = getattr(tokenizer, "bos_token_id", None)
+    info['eos_id'] = getattr(tokenizer, "eos_token_id", None)
+    info['cls_id'] = getattr(tokenizer, "cls_token_id", None)
+    info['pad_id'] = getattr(tokenizer, "pad_token_id", None)
+
+    # Helper: convert an id to its string token safely
+    def id_to_token(tid):
+        if tid is None:
+            return None
+        try:
+            return tokenizer.convert_ids_to_tokens(tid)
+        except Exception:
+            # If conversion fails for any reason, return None instead of crashing
+            return None
+
+    # Convert bos and pad ids (if any) to token strings
+    info['bos_token'] = id_to_token(info['bos_id'])
+    info['pad_token'] = id_to_token(info['pad_id'])
+    return info
+
+
+
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
