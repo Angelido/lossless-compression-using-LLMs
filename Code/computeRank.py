@@ -197,7 +197,7 @@ def compute_token_ranks_fast_unixcoder(
             # Build mask to keep only non-padding target tokens
             mask_target = (target_ids != pad_token_id)    # [B, L-1]
 
-            # 2) Count valid tokens per sequence
+            # Count valid tokens per sequence
             lengths = mask_target.sum(dim=1).tolist()   # [B]
 
             # Flatten all valid ranks into a single 1D tensor
