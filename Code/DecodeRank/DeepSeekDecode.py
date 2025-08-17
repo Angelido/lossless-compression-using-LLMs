@@ -58,8 +58,7 @@ print("device=", device)
 
 # Read dataset and save information
 df = pd.read_csv(f"Dataset/{language}100MB.csv")
-input_texts = df["text"].head(16).tolist()
-# input_texts = df["text"].tolist()
+input_texts = df["text"].tolist()
 
 # =========================
 # Create dataloader e with chuncked lists
