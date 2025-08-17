@@ -10,7 +10,7 @@ from transformers import BitsAndBytesConfig
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from computeRank import compute_token_ranks_fast_old
-from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
+from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_old
 from utility import ( 
     save_rank_list_to_file,
     count_nonpad_tokens_per_row, 
@@ -58,7 +58,7 @@ df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
 
 # Preprocessing and chunking
-input_id_list, mapping = preprocess_dataset_fast(
+input_id_list, mapping = preprocess_dataset_fast_old(
     input_texts,
     tokenizer,
     max_length=max_length,

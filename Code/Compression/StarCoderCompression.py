@@ -9,7 +9,7 @@ import os
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from dataLoader import create_chunk_dataloader, preprocess_dataset_fast
+from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_old
 from computeRank import compute_token_ranks_fast_old
 from utility import (
     count_nonpad_tokens_per_row, 
@@ -65,7 +65,7 @@ total_bytes = df["length_bytes"].sum()
 start_create_dataloader = time.perf_counter()
 
 # Preprocessing and chunking
-input_id_list, mapping = preprocess_dataset_fast(
+input_id_list, mapping = preprocess_dataset_fast_old(
     input_texts,
     tokenizer,
     max_length=max_length,
