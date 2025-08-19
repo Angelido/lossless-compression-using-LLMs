@@ -141,6 +141,6 @@ ok = verify_reconstruction(
     tokenizer)
 
 if ok:
-    print("🎉 Tutte le ricostruzioni sono corrette!")
+    print("🎉 All reconstructions are correct!")
 else:
-    print("⚠️ Alcune ricostruzioni non corrispondono.")
+    print("⚠️ Some reconstructions do not match.")
