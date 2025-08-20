@@ -9,7 +9,10 @@ import os
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_old
+from dataLoader import (
+    create_chunk_dataloader, 
+    preprocess_dataset_fast_old
+)
 from computeRank import compute_token_ranks_fast_old
 from utility import (
     count_nonpad_tokens_per_row, 
@@ -18,44 +21,54 @@ from utility import (
     compress_and_save
 )
 
-# ATTENTION: change binary, compression, e file name ad every running 
-
 # =========================
-# Global variables, tokenizer e load dataset
+# Global variables
 # =========================
 
-# Model name
-model_name = "microsoft/phi-2"
-language = "Python"  
+language = "Python" # Which dataset to use
 batch_size = 32
 max_length = 512
 
+# ATTENTION: change binary, use_zstd and compression_level at every running
 # If zstd is True use level=(3, 12, 22), else use level=(3, 9)
 binary = True
 use_zstd = True  
 compression_level = 3
-filename_prefix = "Phi2_rank_list"
+
+# =========================
+# Set tokenizer and model
+# =========================
+
+# Model name
+model_name = "microsoft/phi-2"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", trust_remote_code=True)
 
 # Set the pad token to the end of the sequence
-tokenizer.pad_token = tokenizer.eos_token 
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
 PAD_TOKEN_ID = tokenizer.pad_token_id  
+
+# Upload model
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", trust_remote_code=True)
+
+# =========================
+# Set device and upload data
+# =========================
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
 print("device=", device)
 
-# Read dataset and save information
+# Upload data
 df = pd.read_csv(f"Dataset/{language}100MB.csv")
 input_texts = df["text"].tolist()
 total_bytes = df["length_bytes"].sum()
 
 # =========================
-# Create dataloader e with chuncked lists
+# Create dataloader with chuncked lists
 # =========================
 
 start_create_dataloader = time.perf_counter()
@@ -82,7 +95,6 @@ end_create_dataloader = time.perf_counter()
 time_dataloader = end_create_dataloader - start_create_dataloader
 
 print("After dataloader")
-
 
 # =========================
 # Compute the ranks and reconstruct lists
@@ -119,9 +131,10 @@ print("Finished recostruncing rank list")
 # =========================
 # Compression and save results
 # =========================
-results_dir = "Results/CompressedFiles"
 
-# Esempio di chiamata:
+results_dir = "Results/CompressedFiles"
+filename_prefix = "Phi2_rank_list"
+
 outfile_path, compressed_size_bytes, compression_time = compress_and_save(
     reconstructed_rank_list,
     results_dir,

@@ -268,7 +268,6 @@ def compress_zstd(
 #==============================#
 #============ main ============#
 #==============================#
-
 if __name__ == "__main__":
     
     # Variables to change during experiments
