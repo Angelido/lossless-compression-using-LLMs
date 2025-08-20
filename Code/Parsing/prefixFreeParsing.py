@@ -6,6 +6,15 @@ import os
 import subprocess
 
 
+# =====================================================
+# This file contains the code needed to load the datasets,
+# preprocess them to make them ready for parsing,
+# perform prefix-free parsing on a text data file,
+# and analyze the results by saving them into a CSV
+# to evaluate valid parsings.
+# =====================================================
+
+
 
 #====== prepare_text_for_newscan ======
 def prepare_text_for_newscan(
