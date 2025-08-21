@@ -63,9 +63,9 @@ max_length = 256         # chunk length (BOS included)
 
 ### `dataLoader.py`
 
-* `preprocess_dataset_fast(...)` 
+* `preprocess_dataset_fast(input_texts, tokenizer, max_length, stride)` 
   Tokenizes inputs and builds chunked `input_id_list` + `mapping`. Use the `_unixcoder` variant when testing UniXcoder.
-* `create_chunk_dataloader(input_id_list, batch_size=...)`
+* `create_chunk_dataloader(input_id_list, batch_size)`
   Wraps chunk lists into a generator/dataloader for batched forward passes.
 * `get_token_info(tokenizer)`
   Returns special token ids/info (BOS, EOS, PAD, etc).
