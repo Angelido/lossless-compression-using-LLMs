@@ -9,7 +9,7 @@ Each subfolder groups code related to a specific topic, while the three shared m
 
 * [Folder structure](#folder-structure)
 * [Core modules](#core-modules)
-* [Usage example](#usage-example)
+* [Subfolders usage](#subfolders-usage)
 * [Notes](#notes)
 
 ---
@@ -67,7 +67,7 @@ In addition to the folders above, three shared Python files provide fundamental 
 
 ---
 
-## Usage example
+## Subfolders usage
 
 To ensure access to the shared modules (`utility.py`, `dataLoader.py`, `computeRank.py`),
 each script inside the subfolders should include the following snippet:
