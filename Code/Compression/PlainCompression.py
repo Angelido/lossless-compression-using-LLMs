@@ -3,6 +3,8 @@ import os
 import io
 import tarfile
 import bz2
+import subprocess
+import shutil
 import zstandard as zstd
 import time
 import sys
@@ -196,6 +198,61 @@ def create_tar_from_texts(
             tar.addfile(tarinfo, fileobj=bytes_io)
     print(f"Archivio .tar creato con successo: {tar_output}")
     
+    
+
+#============ compress_bz3 ============#
+def compress_bz3(
+    input_tar_path: str,
+    output_bz3_path: str,
+    best: bool = True,
+    keep_default_block: bool = True
+) -> int:
+    """
+    Compress an existing .tar using the system 'bzip3' CLI.
+
+    Parameters
+    ----------
+    input_tar_path : str
+        Path to the .tar file to compress.
+    output_bz3_path : str
+        Output .bz3 path.
+    best : bool
+        Logical "best vs fast". When keep_default_block=True (default), it does
+        NOT change the ratio because bzip3 CLI has no --best/--fast. It's kept
+        only for API symmetry. If keep_default_block=False, maps to -b 64 (best)
+        or -b 1 (fast).
+    keep_default_block : bool
+        If True (default), DO NOT set -b (use bzip3 default, 16 MiB).
+        If False, emulate best/fast by setting -b accordingly.
+
+    Returns
+    -------
+    int
+        Size in bytes of the created .bz3 file.
+    """
+    exe = shutil.which("bzip3")
+    if not exe:
+        raise RuntimeError("Non trovo 'bzip3' nel PATH (su macOS: `brew install bzip3`).")
+
+    # Always use all CPU threads
+    threads = max(1, os.cpu_count() or 1)
+    argv = [exe, "-j", str(threads)]
+
+    # Optionally emulate best/fast by touching block size
+    if not keep_default_block:
+        argv += ["-b", "64" if best else "1"]
+
+    # Stream to stdout and redirect to output file
+    argv += ["-c", input_tar_path]
+
+    with open(output_bz3_path, "wb") as f_out:
+        proc = subprocess.run(argv, stdout=f_out, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(f"bzip3 CLI exit {proc.returncode}: {proc.stderr.decode(errors='ignore')}")
+
+    return os.path.getsize(output_bz3_path)
+    
+    
 
 #============ compress_bz2 ============#
 def compress_bz2(
@@ -265,14 +322,17 @@ def compress_zstd(
     compressed_size = os.path.getsize(output_zst_path)
     return compressed_size
 
+
+
 #==============================#
 #============ main ============#
 #==============================#
+
 if __name__ == "__main__":
     
     # Variables to change during experiments
-    language = "CSharp"  # Change to the desired language
-    extension = "cs"  # Change to the desired file extension (e.g., "py", "java", "cpp", etc.)
+    language = "Java"  # Change to the desired language
+    extension = "java"  # Change to the desired file extension (e.g., "py", "java", "cpp", etc.)
     
     # Define output directories
     tar_dir = "Results/PlainText/Tar"
@@ -284,8 +344,9 @@ if __name__ == "__main__":
     
     # File names
     output_tar = os.path.join(tar_dir, f"all_{language}_sources.tar")
-    output_bz2 = os.path.join(compressed_dir, f"all_{language}_sources_bzip2-3.bz2")
-    output_bz9 = os.path.join(compressed_dir, f"all_{language}_sources_bzip2-9.bz2")
+    output_bz2_3 = os.path.join(compressed_dir, f"all_{language}_sources_bzip2-3.bz2")
+    output_bz2_9 = os.path.join(compressed_dir, f"all_{language}_sources_bzip2-9.bz2")
+    output_bz3_default = os.path.join(compressed_dir, f"all_{language}_sources_bzip3-default.bz3")
     output_zstd3 = os.path.join(compressed_dir, f"all_{language}_sources_zstd3.zst")
     output_zstd12 = os.path.join(compressed_dir, f"all_{language}_sources_zstd12.zst")
     output_zstd22 = os.path.join(compressed_dir, f"all_{language}_sources_zstd22.zst")
@@ -324,27 +385,37 @@ if __name__ == "__main__":
     
     #================ bzip2 compression ================#
     
-    start__bzip2 = time.perf_counter()
+    start__bzip2_3 = time.perf_counter()
     
     # Compress with bzip2
-    size_bytes_bz2 = compress_bz2(output_tar, output_bz2, compresslevel=3)
+    size_bytes_bz2_3 = compress_bz2(output_tar, output_bz2_3, compresslevel=3)
     
-    end_bzip2 = time.perf_counter()
-    time_bzip2 = end_bzip2 - start__bzip2 
-    total_time_bzip2=time_bzip2+time_create_tar+time_text_preprocessing
+    end_bzip2_3 = time.perf_counter()
+    time_bzip2_3 = end_bzip2_3 - start__bzip2_3 
+    total_time_bzip2=time_bzip2_3+time_create_tar+time_text_preprocessing
     
     #================ bzip2-9 compression ================#
     
     start__bzip2_9 = time.perf_counter()
     
     # Compress with bzip2 level 9
-    size_bytes_bz9 = compress_bz2(output_tar, output_bz9, compresslevel=9)
+    size_bytes_bz2_9 = compress_bz2(output_tar, output_bz2_9, compresslevel=9)
     
     end_bzip2_9 = time.perf_counter()
     time_bzip2_9 = end_bzip2_9 - start__bzip2_9 
     total_time_bzip2_9 = time_bzip2_9 + time_create_tar + time_text_preprocessing
-       
+
+    #================ bzip3 default compression ================#
     
+    start__bzip3_default = time.perf_counter()
+    
+    # Compress with bzip3 level fast (=1)
+    size_bytes_bz3_default = compress_bz3(output_tar, output_bz3_default, best=False, keep_default_block=True)
+    
+    end_bzip3_default = time.perf_counter()
+    time_bzip3_default = end_bzip3_default - start__bzip3_default 
+    total_time_bzip3_default = time_bzip3_default + time_create_tar + time_text_preprocessing
+       
     #================ zstd3 compression ================#
     
     start__zstd3 = time.perf_counter()
@@ -381,38 +452,53 @@ if __name__ == "__main__":
     #================ saving results ================#
     
     info_dir = "Results"
-    csv_file = "Plain_Compression_Info.csv"
+    csv_file = "Plain_Compression_Info_Final.csv"
     
     # Create a dictionary with the information of bzip2
-    row_dict_bzip2 = {
+    row_dict_bzip2_3 = {
         "language": language,
         "compression": "bzip2-3",
-        "output_file": output_bz2,
+        "output_file": output_bz2_3,
         "text_preprocessing_time_s": round(time_text_preprocessing, 4),
         "create_tar_time_s": round(time_create_tar, 4),
-        "compression_time_s": round(time_bzip2, 4),
+        "compression_time_s": round(time_bzip2_3, 4),
         "total_time_s": round(total_time_bzip2, 4),
         "original_size_bytes": total_bytes,
-        "compressed_size_bytes": size_bytes_bz2,
+        "compressed_size_bytes": size_bytes_bz2_3,
         "throughput_MBps": round(total_bytes / total_time_bzip2 / (1024 * 1024), 4),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     
     # Create a dictionary with the information of bzip2-9
-    row_dict_bzip9 = {
+    row_dict_bzip2_9 = {
         "language": language,
         "compression": "bzip2-9",
-        "output_file": output_bz9,
+        "output_file": output_bz2_9,
         "text_preprocessing_time_s": round(time_text_preprocessing, 4),
         "create_tar_time_s": round(time_create_tar, 4),
         "compression_time_s": round(time_bzip2_9, 4),
         "total_time_s": round(total_time_bzip2_9, 4),
         "original_size_bytes": total_bytes,
-        "compressed_size_bytes": size_bytes_bz9,
+        "compressed_size_bytes": size_bytes_bz2_9,
         "throughput_MBps": round(total_bytes / total_time_bzip2_9 / (1024 * 1024), 4),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
-
+    
+    # Create a dictionary with the information of bzip3_default
+    row_dict_bzip3_default = {
+        "language": language,
+        "compression": "bzip3-default",
+        "output_file": output_bz3_default,
+        "text_preprocessing_time_s": round(time_text_preprocessing, 4),
+        "create_tar_time_s": round(time_create_tar, 4),
+        "compression_time_s": round(time_bzip3_default, 4),
+        "total_time_s": round(total_time_bzip3_default, 4),
+        "original_size_bytes": total_bytes,
+        "compressed_size_bytes": size_bytes_bz3_default,
+        "throughput_MBps": round(total_bytes / total_time_bzip3_default / (1024 * 1024), 4),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
     # Create a dictionary with the information of zstd3
     row_dict_zstd3 = {
         "language": language,
@@ -459,8 +545,9 @@ if __name__ == "__main__":
     }
     
     # Save row_dict on the csv
-    save_info_to_csv(info_dir, csv_file, row_dict_bzip2)
-    save_info_to_csv(info_dir, csv_file, row_dict_bzip9)
+    save_info_to_csv(info_dir, csv_file, row_dict_bzip2_3)
+    save_info_to_csv(info_dir, csv_file, row_dict_bzip2_9)
+    save_info_to_csv(info_dir, csv_file, row_dict_bzip3_default)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd3)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd12)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd22)
@@ -469,14 +556,19 @@ if __name__ == "__main__":
     #================ print results on screen ================#
     
     print("=== End execution information of bzip2-3 compression ===")
-    for key, value in row_dict_bzip2.items():
+    for key, value in row_dict_bzip2_3.items():
         print(f"{key:25s}: {value}")
     print("=======================================\n")
     
     print("=== End execution information of bzip2-9 compression ===")
-    for key, value in row_dict_bzip9.items():
+    for key, value in row_dict_bzip2_9.items():
         print(f"{key:25s}: {value}")
     print("=======================================\n")
+    
+    print("=== End execution information of bzip3-fast compression ===")
+    for key, value in row_dict_bzip3_default.items():
+        print(f"{key:25s}: {value}")
+    print("=======================================\n")  
     
     print("=== End execution information of zstd3 compression ===")
     for key, value in row_dict_zstd3.items():
