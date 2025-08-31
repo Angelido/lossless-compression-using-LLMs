@@ -50,7 +50,6 @@ def all_path_end_with_ext(
     return ends_with_ext.all()
 
 
-
 #============ invalid_ext_paths ============#
 def invalid_ext_paths(
     df: pd.DataFrame, 
@@ -76,7 +75,6 @@ def invalid_ext_paths(
     mask = ~df[column].astype(str).str.endswith(f'.{extension}')
     
     return df.loc[mask, column]
-
 
 
 #============ fix_path ============#
@@ -109,7 +107,6 @@ def fix_path(
     new_filename = base + f".{extension}"
     
     return os.path.join(dirpath, new_filename)
-
 
 
 #============ invert_full_path ============#
@@ -159,7 +156,6 @@ def invert_full_path(
         return f"{inverted_filename}/" + "/".join(dirs_reversed) + "/"
 
 
-
 #============ create_tar_from_texts ============#
 def create_tar_from_texts(
     df: pd.DataFrame, 
@@ -197,7 +193,6 @@ def create_tar_from_texts(
             # 2.4) Aggiungiamo l’entry al tar direttamente dal buffer di memoria
             tar.addfile(tarinfo, fileobj=bytes_io)
     print(f"Archivio .tar creato con successo: {tar_output}")
-    
     
 
 #============ compress_bz3 ============#
@@ -252,7 +247,6 @@ def compress_bz3(
 
     return os.path.getsize(output_bz3_path)
     
-    
 
 #============ compress_bz2 ============#
 def compress_bz2(
@@ -286,7 +280,6 @@ def compress_bz2(
     # 4) Misuriamo e restituiamo la dimensione del file compresso
     compressed_size = os.path.getsize(output_bz2_path)
     return compressed_size
-
 
 
 #============ compress_bz2 ============#
@@ -323,10 +316,10 @@ def compress_zstd(
     return compressed_size
 
 
-
 #==============================#
 #============ main ============#
 #==============================#
+
 
 if __name__ == "__main__":
     
@@ -551,7 +544,6 @@ if __name__ == "__main__":
     save_info_to_csv(info_dir, csv_file, row_dict_zstd3)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd12)
     save_info_to_csv(info_dir, csv_file, row_dict_zstd22)
-    
     
     #================ print results on screen ================#
     
