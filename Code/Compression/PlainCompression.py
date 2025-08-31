@@ -409,7 +409,7 @@ if __name__ == "__main__":
     
     start__bzip3_default = time.perf_counter()
     
-    # Compress with bzip3 level fast (=1)
+    # Compress with bzip3 deafault settings
     size_bytes_bz3_default = compress_bz3(output_tar, output_bz3_default, best=False, keep_default_block=True)
     
     end_bzip3_default = time.perf_counter()
@@ -565,7 +565,7 @@ if __name__ == "__main__":
         print(f"{key:25s}: {value}")
     print("=======================================\n")
     
-    print("=== End execution information of bzip3-fast compression ===")
+    print("=== End execution information of bzip3-default compression ===")
     for key, value in row_dict_bzip3_default.items():
         print(f"{key:25s}: {value}")
     print("=======================================\n")  
