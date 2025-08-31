@@ -954,15 +954,534 @@ def decode_ranks_batched(
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
 
+# =====================================================
+# These functions are retained for reference but not used
+# in the current pipeline. They are used for debugging,
+# when rich diagnostics are needed for the reconstruction
+# process.
+# =====================================================
+
+
+# ====== compute_token_ranks_topk_debug ====== #
+def compute_token_ranks_topk_debug(
+    dataloader: DataLoader,
+    model: torch.nn.Module,
+    pad_token_id: int,
+    device: str,
+    topk: int = 10,
+    *,
+    # === tie handling (OFF if tie_eps_abs == 0) ===
+    tie_as_exception: bool = True,
+    tie_eps_abs: float = 0.0,           # e.g., 0.03 for 4-bit; 0 disables soft-tie handling
+    # === optional debugging ===
+    debug_step: Optional[int] = None,   # 0-based step index for detailed diagnostics
+    debug_topn_print: int = 10,         # how many top entries to display in diagnostics
+) -> Tuple[List[List[int]], List[List[int]], Dict[str, float], List[List[List[int]]]]:
+    """
+    Compute target-token ranks via a stable top-k procedure and emit rich debugging info.
+
+    This function mirrors the semantics of the non-debug top-k variant while additionally
+    collecting, per sequence and per step, the decoding contexts (prefix token ids) and
+    optionally printing detailed diagnostics at a chosen time step. The stable ordering
+    among top-k candidates is enforced by sorting scores descending and breaking ties with
+    ascending token id using a tiny epsilon.
+
+    Soft-tie handling (optional): a position is marked as an exception (encoded rank=0) if
+      (i) the target is within top-k but its nearest neighbor (left/right in the stable
+          order) is within `tie_eps_abs`, or
+      (ii) the target is outside top-k but its logit is within `tie_eps_abs` of the k-th
+           logit (border case).
+
+    Input:
+    - dataloader (DataLoader):
+        Batches of tokenized input sequences (shape [B, L]).
+    - model (torch.nn.Module):
+        Autoregressive LM returning `.logits`.
+    - pad_token_id (int):
+        Token id used for padding in the input sequences.
+    - device (str):
+        Device identifier ('cuda' or 'cpu').
+    - topk (int):
+        Number of top logits to consider per position. Must be > 0.
+    - tie_as_exception (bool):
+        If True, soft ties trigger exception (rank=0).
+    - tie_eps_abs (float):
+        Absolute logit-distance threshold for soft-tie detection. 0 disables it.
+    - debug_step (Optional[int]):
+        If provided, prints detailed diagnostics at this step index (0-based) for each row
+        that has that step.
+    - debug_topn_print (int):
+        Number of entries to print from top-k and full-sort diagnostics.
+
+    Return:
+    - all_ranks (List[List[int]]):
+        Per-sequence ranks in {0} ∪ [1..K]; 0 marks exceptions or target outside top-k
+        under the soft-tie rule.
+    - all_exceptions (List[List[int]]):
+        Per-sequence lists of target token ids where rank==0.
+    - timers (Dict[str, float]):
+        Accumulated timings in seconds for:
+          "data_to_device", "forward_pass", "compute_target_logits",
+          "topk_and_ranks", "filter_and_split".
+    - all_contexts_per_step (List[List[List[int]]]):
+        For each sequence, the list of context prefixes (token ids) used at each step.
+    """
+    assert topk > 0, "topk must be > 0"
+    model.eval()
+
+    all_ranks: List[List[int]] = []
+    all_exceptions: List[List[int]] = []
+    all_contexts_per_step: List[List[List[int]]] = []
+
+    # Timing buckets aligned with the non-debug implementation
+    timers = {
+        "data_to_device": 0.0,
+        "forward_pass": 0.0,
+        "compute_target_logits": 0.0,
+        "topk_and_ranks": 0.0,
+        "filter_and_split": 0.0,
+    }
+
+    # Ensure deterministic numeric path (disable TF32 on CUDA)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
+    with torch.no_grad():
+        global_seq_counter = 0  # tracks absolute sequence index across batches
+
+        for batch in dataloader:
+            # --- (1) Move batch to device
+            start = time.perf_counter()
+            input_ids = batch.to(device)                         # [B, L]
+            timers["data_to_device"] += time.perf_counter() - start
+
+            # --- (2) Forward pass with attention mask (SDPA MATH)
+            start = time.perf_counter()
+            attention_mask = (input_ids != pad_token_id).long()  # [B, L]
+            # Use pure MATH backend for SDPA to keep behavior consistent
+            with sdpa_kernel(SDPBackend.MATH):
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            logits  = outputs.logits                              # [B, L, V]
+            timers["forward_pass"] += time.perf_counter() - start
+
+            # --- (3) Shift logits/targets for next-token prediction
+            start = time.perf_counter()
+            logits_input = logits[:, :-1, :]   # [B, L-1, V]
+            target_ids   = input_ids[:, 1:]    # [B, L-1]
+            timers["compute_target_logits"] += time.perf_counter() - start
+
+            # --- (3b) Trace contexts per step (prefixes up to each step)
+            B, Lm1, V = logits_input.shape
+            batch_contexts: List[List[List[int]]] = []
+            for b in range(B):
+                valid_len = int((input_ids[b] != pad_token_id).sum().item())
+                seq_ctx: List[List[int]] = []
+                num_steps = max(0, valid_len - 1)
+                for t in range(num_steps):
+                    prefix = input_ids[b, :t+1].tolist()
+                    # Remove pad tokens if present at the end (defensive)
+                    if prefix and prefix[-1] == pad_token_id:
+                        prefix = [x for x in prefix if x != pad_token_id]
+                    seq_ctx.append(prefix)
+                batch_contexts.append(seq_ctx)
+
+            # --- (3c) Optional per-step diagnostics at 'debug_step'
+            if debug_step is not None:
+                for b in range(B):
+                    valid_len = int((input_ids[b] != pad_token_id).sum().item())
+                    num_steps = max(0, valid_len - 1)
+                    if debug_step < num_steps:
+                        row_logits = logits_input[b, debug_step]   # [V]
+                        tgt_id     = int(target_ids[b, debug_step].item())
+
+                        # Stable top-k (value desc, id asc via epsilon)
+                        vals_k, ids_k = torch.topk(row_logits, k=topk, dim=-1)
+                        eps_k = (ids_k.float() / max(row_logits.numel(), 1)) * 1e-6
+                        order = torch.argsort((-vals_k).float() + eps_k, dim=-1)
+                        stable_topk_ids  = ids_k[order]
+                        stable_topk_vals = vals_k[order]
+
+                        # Full-vocabulary diagnostic sort (value desc, id asc via epsilon)
+                        ids_all  = torch.arange(row_logits.numel(), device=row_logits.device)
+                        eps_all  = (ids_all.float() / max(row_logits.numel(), 1)) * 1e-6
+                        order_fs = torch.argsort((-row_logits).float() + eps_all)
+                        full_sorted_ids  = ids_all[order_fs]
+                        full_sorted_vals = row_logits[order_fs]
+
+                        where = (stable_topk_ids == tgt_id).nonzero(as_tuple=False)
+                        rank_if_in = int(where[0].item()+1) if where.numel() > 0 else 0
+
+                        print(f"\n[COMPUTE DEBUG] global_seq={global_seq_counter + b} step={debug_step} "
+                              f"(B,L,V)=({B},{input_ids.size(1)},{row_logits.numel()})")
+                        print(f"  attn_sum={int(attention_mask[b].sum().item())}  valid_len={valid_len}  pos=t={debug_step}")
+                        print(f"  context_ids[:t+1]={input_ids[b, :debug_step+1].tolist()}")
+                        print(f"  target_id@t+1={tgt_id}")
+                        print(f"  topk(stable) ids[:{debug_topn_print}]={stable_topk_ids[:debug_topn_print].tolist()}")
+                        print(f"  topk(stable) vals[:{debug_topn_print}]={[float(x) for x in stable_topk_vals[:debug_topn_print]]}")
+                        print(f"  fullsort ids[:{debug_topn_print}]={full_sorted_ids[:debug_topn_print].tolist()}")
+                        print(f"  fullsort vals[:{debug_topn_print}]={[float(x) for x in full_sorted_vals[:debug_topn_print]]}")
+                        print(f"  target_rank_in_topk={rank_if_in}")
+
+            # --- (4) Stable top-k extraction + rank/exception (+ optional soft-tie)
+            start = time.perf_counter()
+            topk_vals, topk_idx = torch.topk(logits_input, k=topk, dim=-1)  # [B, L-1, K]
+            eps = (topk_idx.float() / max(V, 1)) * 1e-6                      # [B, L-1, K]
+            keys = (-topk_vals).float() + eps                                # [B, L-1, K]
+            order = torch.argsort(keys, dim=-1)                              # asc → value desc, id asc
+            stable_topk_idx  = torch.gather(topk_idx,  dim=-1, index=order)  # [B, L-1, K]
+            stable_topk_vals = torch.gather(topk_vals, dim=-1, index=order)  # [B, L-1, K]
+
+            K = stable_topk_idx.shape[-1]
+            target_exp = target_ids.unsqueeze(-1).expand(-1, -1, K)          # [B, L-1, K]
+            match = (stable_topk_idx == target_exp)                           # [B, L-1, K]
+            in_topk = match.any(dim=-1)                                       # [B, L-1]
+            pos = match.float().argmax(dim=-1).long()                         # [B, L-1], 0..K-1
+
+            # Encode ranks as 1..K for in-top-k; 0 otherwise
+            ranks_encoded = torch.where(in_topk, pos + 1, torch.zeros_like(pos))  # [B, L-1]
+
+            # ---- Soft-tie → exception (optional, safe)
+            tie_mask = torch.zeros_like(in_topk, dtype=torch.bool)  # [B, L-1]
+            if tie_as_exception and tie_eps_abs > 0.0:
+                # Value at matched position (for in-top-k)
+                pos_clamped = pos.clamp(min=0, max=K-1)
+                val_pos = torch.gather(stable_topk_vals, -1, pos_clamped.unsqueeze(-1)).squeeze(-1)  # [B, L-1]
+
+                # Large sentinel (same dtype) for positions without left/right neighbor
+                BIG = torch.tensor(torch.finfo(stable_topk_vals.dtype).max, device=stable_topk_vals.device)
+                big_like = torch.full_like(val_pos, BIG)
+
+                # Left neighbor (only where pos > 0)
+                has_left = pos > 0
+                left_idx = (pos - 1).clamp(min=0)
+                left_g   = torch.gather(stable_topk_vals, -1, left_idx.unsqueeze(-1)).squeeze(-1)
+                left_val = torch.where(has_left, left_g, big_like)
+
+                # Right neighbor (only where pos < K-1)
+                has_right = pos < (K - 1)
+                right_idx = (pos + 1).clamp(max=K-1)
+                right_g   = torch.gather(stable_topk_vals, -1, right_idx.unsqueeze(-1)).squeeze(-1)
+                right_val = torch.where(has_right, right_g, big_like)
+
+                # Smallest neighbor gap in top-k
+                min_neighbor_diff = torch.minimum((val_pos - left_val).abs(), (val_pos - right_val).abs())
+
+                tie_in_topk = in_topk & (min_neighbor_diff <= tie_eps_abs)
+
+                # Border case: target outside top-k but close to k-th logit
+                kth_vals     = stable_topk_vals[..., K - 1]                         # [B, L-1]
+                target_vals  = logits_input.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)  # [B, L-1]
+                tie_at_border = (~in_topk) & ((target_vals - kth_vals).abs() <= tie_eps_abs)
+
+                tie_mask = tie_in_topk | tie_at_border
+                # Turn ranks into 0 where a soft tie is detected
+                ranks_encoded = torch.where(tie_mask, torch.zeros_like(ranks_encoded), ranks_encoded)
+
+            timers["topk_and_ranks"] += time.perf_counter() - start
+
+            # --- (5) Filter PAD and split per sequence (ranks/exceptions/contexts)
+            start = time.perf_counter()
+            mask_valid = (target_ids != pad_token_id)                         # [B, L-1]
+            valid_counts = mask_valid.sum(dim=1).tolist()                     # [B]
+
+            # Ranks: flatten valid positions then split back per sequence
+            flat_ranks = ranks_encoded[mask_valid]                            # [sum(valid)]
+            split_ranks = torch.split(flat_ranks, valid_counts)               # tuple of B tensors
+
+            # Exceptions: outside top-k OR soft-tie flagged
+            zeros_mask = mask_valid & (~in_topk | tie_mask)                   # [B, L-1]
+            zeros_counts = zeros_mask.sum(dim=1).tolist()                     # [B]
+            flat_exceptions = target_ids[zeros_mask]                          # [sum(zeros)]
+            split_exceptions = torch.split(flat_exceptions, zeros_counts)     # tuple of B tensors
+
+            # Accumulate per-sequence outputs and contexts
+            for b, (seq_r, seq_e) in enumerate(zip(split_ranks, split_exceptions)):
+                all_ranks.append(seq_r.tolist())
+                all_exceptions.append(seq_e.tolist())
+                seq_ctx = batch_contexts[b][:valid_counts[b]]
+                all_contexts_per_step.append(seq_ctx)
+
+            timers["filter_and_split"] += time.perf_counter() - start
+            global_seq_counter += B
+
+    return all_ranks, all_exceptions, timers, all_contexts_per_step
+
+
+# ====== compute_token_ranks_topk_stepwise ====== #
+@torch.no_grad()
+def compute_token_ranks_topk_stepwise(
+    dataloader: DataLoader,
+    model: torch.nn.Module,
+    pad_token_id: int,
+    device: str,
+    topk: int = 10,
+    *,
+    # === tie handling (same as compute_token_ranks_topk4) ===
+    tie_as_exception: bool = True,
+    tie_eps_abs: float = 0.0,
+    # === optional debug (t = 0-based, over the stepwise loop) ===
+    debug_step: Optional[int] = None,
+    debug_topn_print: int = 10,
+) -> Tuple[List[List[int]], List[List[int]], Dict[str, float], List[List[List[int]]]]:
+    """
+    Compute top-k-based ranks step-by-step using teacher forcing (prefix-only evaluation).
+
+    This stepwise variant reproduces the exact rank/exception semantics of the classic
+    top-k compute function, but it performs a forward pass per time step with the
+    *true* prefix (teacher forcing). At each step t:
+      - The working input contains only the real tokens up to position t (others are PAD).
+      - The model computes logits for that step; we extract row t (predicting token t+1).
+      - After the loop, the collected per-step logits form a [B, L-1, V] tensor, and we
+        apply the same stable top-k + soft-tie handling used by the batched version.
+
+    Output matches the standard top-k implementation:
+      - all_ranks:        ranks per sequence (values in {0} ∪ [1..K])
+      - all_exceptions:   target token ids where rank == 0 (exceptions)
+      - timers:           timing breakdown
+      - all_contexts_per_step: list of per-step prefix contexts for each sequence
+
+    Input:
+    - dataloader (DataLoader):
+        Batches of tokenized sequences (shape [B, L]).
+    - model (torch.nn.Module):
+        Autoregressive LM returning `.logits`.
+    - pad_token_id (int):
+        Padding token id used in input sequences.
+    - device (str):
+        Device identifier ('cuda' or 'cpu').
+    - topk (int):
+        Size of the top-k set (must be > 0).
+    - tie_as_exception (bool):
+        If True, soft ties are treated as exceptions (rank=0).
+    - tie_eps_abs (float):
+        Absolute logit-difference threshold for soft-tie detection. 0 disables it.
+    - debug_step (Optional[int]):
+        If provided, prints detailed diagnostics for this step index (0-based).
+    - debug_topn_print (int):
+        Number of entries to display in top-k/full-sort debug prints.
+
+    Return:
+    - all_ranks (List[List[int]]):
+        Per-sequence ranks in {0} ∪ [1..K]. 0 denotes exception (soft-tie or outside top-k).
+    - all_exceptions (List[List[int]]):
+        Per-sequence lists of target token ids where rank==0.
+    - timers (Dict[str, float]):
+        Accumulated timings (seconds) for:
+          "data_to_device", "forward_pass" (sum over steps),
+          "compute_target_logits", "topk_and_ranks", "filter_and_split".
+    - all_contexts_per_step (List[List[List[int]]]):
+        For each sequence, the list of prefix contexts (token ids) used at each step.
+    """
+    assert topk > 0, "topk must be > 0"
+    model.eval()
+
+    # Ensure deterministic numeric path (disable TF32 on CUDA)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+
+    all_ranks: List[List[int]] = []
+    all_exceptions: List[List[int]] = []
+    all_contexts_per_step: List[List[List[int]]] = []
+
+    # Timing buckets aligned with the non-stepwise implementation
+    timers = {
+        "data_to_device": 0.0,
+        "forward_pass": 0.0,            # sum over per-step forward passes
+        "compute_target_logits": 0.0,   # negligible here (targets already aligned)
+        "topk_and_ranks": 0.0,
+        "filter_and_split": 0.0,
+    }
+
+    global_seq_counter = 0  # absolute sequence index across batches (for debug logs)
+
+    for batch in dataloader:
+        # --- (1) Move batch to device
+        start = time.perf_counter()
+        input_ids = batch.to(device)                 # [B, L]
+        timers["data_to_device"] += time.perf_counter() - start
+
+        B, L = input_ids.shape
+
+        # Full validity mask (used to filter PAD targets later)
+        attention_mask_full = (input_ids != pad_token_id).long()  # [B, L]
+
+        # Will hold per-step logits for predicting positions 1..L-1  → shape [B, L-1, V]
+        logits_input = None
+
+        # Trace contexts per step: for each row, collect the real prefix used at step t
+        batch_contexts: List[List[List[int]]] = [[] for _ in range(B)]
+
+        # --- (2) Stepwise loop over t = 0..L-2 (predicting token at t+1)
+        for t in range(L - 1):
+            # Build stepwise working input: real tokens up to t (inclusive), PAD elsewhere
+            work = torch.full_like(input_ids, pad_token_id)
+            work[:, :t + 1] = input_ids[:, :t + 1]
+            attn = (work != pad_token_id).long()
+
+            # TRACE: save the prefix context used at this step for rows with a real target at t+1
+            for b in range(B):
+                if t < (attention_mask_full[b].sum().item() - 1):
+                    ctx = work[b, :t + 1].tolist()
+                    batch_contexts[b].append(ctx)
+
+            # Per-step forward (use MATH SDPA backend for consistent behavior)
+            start = time.perf_counter()
+            with sdpa_kernel(SDPBackend.MATH):
+                out = model(input_ids=work, attention_mask=attn)
+            timers["forward_pass"] += time.perf_counter() - start
+
+            # The row that predicts position t+1 is at index t
+            row_logits_t = out.logits[:, t, :]      # [B, V]
+
+            # Allocate the final [B, L-1, V] container at the first step
+            if logits_input is None:
+                V = row_logits_t.size(-1)
+                logits_input = torch.empty(
+                    B, L - 1, V,
+                    device=row_logits_t.device,
+                    dtype=row_logits_t.dtype
+                )
+
+            # Store the step logits in column t
+            logits_input[:, t, :] = row_logits_t
+
+            # --- Optional per-step debug diagnostics
+            if debug_step is not None and t == debug_step:
+                for b in range(B):
+                    # Skip rows where the target t+1 is PAD
+                    if int(input_ids[b, t + 1].item()) == pad_token_id:
+                        continue
+
+                    tgt_id = int(input_ids[b, t + 1].item())
+                    vals_k, ids_k = torch.topk(row_logits_t[b], k=topk, dim=-1)  # descending
+                    # Stable sort key: value desc, then token id asc via tiny epsilon
+                    eps_k = (ids_k.float() / max(row_logits_t.size(-1), 1)) * 1e-6
+                    order = torch.argsort((-vals_k).float() + eps_k, dim=-1)
+                    stable_topk_ids  = ids_k[order]
+                    stable_topk_vals = vals_k[order]
+
+                    # Full-vocabulary diagnostic sort (value desc, id asc via epsilon)
+                    ids_all  = torch.arange(row_logits_t.size(-1), device=row_logits_t.device)
+                    eps_all  = (ids_all.float() / max(row_logits_t.size(-1), 1)) * 1e-6
+                    order_fs = torch.argsort((-row_logits_t[b]).float() + eps_all)
+                    full_sorted_ids  = ids_all[order_fs]
+                    full_sorted_vals = row_logits_t[b][order_fs]
+
+                    where = (stable_topk_ids == tgt_id).nonzero(as_tuple=False)
+                    rank_if_in = int(where[0].item() + 1) if where.numel() > 0 else 0
+
+                    print(f"\n[STEPWISE DEBUG] global_seq={global_seq_counter + b} step={t} "
+                          f"(B,L,V)=({B},{L},{row_logits_t.size(-1)})")
+                    print(f"  attn_sum={int(attn[b].sum().item())}  "
+                          f"valid_len={int(attention_mask_full[b].sum().item())}  pos=t={t}")
+                    print(f"  context_ids[:t+1]={work[b, :t+1].tolist()}")
+                    print(f"  target_id@t+1={tgt_id}")
+                    print(f"  topk(stable) ids[:{debug_topn_print}]={stable_topk_ids[:debug_topn_print].tolist()}")
+                    print(f"  topk(stable) vals[:{debug_topn_print}]="
+                          f"{[float(x) for x in stable_topk_vals[:debug_topn_print]]}")
+                    print(f"  fullsort ids[:{debug_topn_print}]={full_sorted_ids[:debug_topn_print].tolist()}")
+                    print(f"  fullsort vals[:{debug_topn_print}]="
+                          f"{[float(x) for x in full_sorted_vals[:debug_topn_print]]}")
+                    print(f"  target_rank_in_topk={rank_if_in}")
+
+        # --- (3) Align targets as in the classic batched compute
+        start = time.perf_counter()
+        target_ids = input_ids[:, 1:]  # [B, L-1]
+        timers["compute_target_logits"] += time.perf_counter() - start
+
+        # --- (4) Stable top-k + ranks/exceptions (+ optional soft-tie) — IDENTICAL to topk4
+        start = time.perf_counter()
+        topk_vals, topk_idx = torch.topk(logits_input, k=topk, dim=-1)        # [B, L-1, K]
+        V = logits_input.size(-1)
+        # Stable ordering key: value desc, id asc via tiny epsilon
+        eps = (topk_idx.float() / max(V, 1)) * 1e-6                           # [B, L-1, K]
+        keys = (-topk_vals).float() + eps                                     # [B, L-1, K]
+        order = torch.argsort(keys, dim=-1)                                   # asc → value desc, id asc
+        stable_topk_idx  = torch.gather(topk_idx,  dim=-1, index=order)       # [B, L-1, K]
+        stable_topk_vals = torch.gather(topk_vals, dim=-1, index=order)       # [B, L-1, K]
+
+        K = stable_topk_idx.shape[-1]
+        target_exp = target_ids.unsqueeze(-1).expand(-1, -1, K)               # [B, L-1, K]
+        match = (stable_topk_idx == target_exp)                                # [B, L-1, K]
+        in_topk = match.any(dim=-1)                                            # [B, L-1]
+        pos = match.float().argmax(dim=-1).long()                               # [B, L-1], 0..K-1
+
+        # Encode ranks as 1..K for in-top-k; 0 otherwise
+        ranks_encoded = torch.where(in_topk, pos + 1, torch.zeros_like(pos))   # [B, L-1]
+
+        # ---- Soft-tie → exception (optional)
+        tie_mask = torch.zeros_like(in_topk, dtype=torch.bool)                 # [B, L-1]
+        if tie_as_exception and tie_eps_abs > 0.0:
+            pos_clamped = pos.clamp(min=0, max=K - 1)
+            val_pos = torch.gather(stable_topk_vals, -1, pos_clamped.unsqueeze(-1)).squeeze(-1)  # [B, L-1]
+
+            # Large sentinel for missing neighbors
+            BIG = torch.tensor(torch.finfo(stable_topk_vals.dtype).max, device=stable_topk_vals.device)
+            big_like = torch.full_like(val_pos, BIG)
+
+            # Left neighbor
+            has_left  = pos > 0
+            left_idx  = (pos - 1).clamp(min=0)
+            left_g    = torch.gather(stable_topk_vals, -1, left_idx.unsqueeze(-1)).squeeze(-1)
+            left_val  = torch.where(has_left, left_g, big_like)
+
+            # Right neighbor
+            has_right = pos < (K - 1)
+            right_idx = (pos + 1).clamp(max=K - 1)
+            right_g   = torch.gather(stable_topk_vals, -1, right_idx.unsqueeze(-1)).squeeze(-1)
+            right_val = torch.where(has_right, right_g, big_like)
+
+            # Smallest neighbor gap inside top-k
+            min_neighbor_diff = torch.minimum((val_pos - left_val).abs(), (val_pos - right_val).abs())
+
+            tie_in_topk = in_topk & (min_neighbor_diff <= tie_eps_abs)
+
+            # Border case: target outside top-k but close to K-th logit
+            kth_vals     = stable_topk_vals[..., K - 1]
+            target_vals  = logits_input.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+            tie_at_border = (~in_topk) & ((target_vals - kth_vals).abs() <= tie_eps_abs)
+
+            tie_mask = tie_in_topk | tie_at_border
+            # Force rank to 0 where a soft tie is detected
+            ranks_encoded = torch.where(tie_mask, torch.zeros_like(ranks_encoded), ranks_encoded)
+
+        timers["topk_and_ranks"] += time.perf_counter() - start
+
+        # --- (5) Filter PAD and split per sequence (ranks/exceptions/contexts) — identical
+        start = time.perf_counter()
+        mask_valid = (target_ids != pad_token_id)                              # [B, L-1]
+        valid_counts = mask_valid.sum(dim=1).tolist()                          # [B]
+
+        # Ranks: flatten valid positions then split back per sequence
+        flat_ranks = ranks_encoded[mask_valid]                                 # [sum(valid)]
+        split_ranks = torch.split(flat_ranks, valid_counts)                    # tuple of B tensors
+
+        # Exceptions: outside top-k OR soft-tie flagged
+        zeros_mask = mask_valid & (~in_topk | tie_mask)                        # [B, L-1]
+        zeros_counts = zeros_mask.sum(dim=1).tolist()                          # [B]
+        flat_exceptions = target_ids[zeros_mask]                               # [sum(zeros)]
+        split_exceptions = torch.split(flat_exceptions, zeros_counts)          # tuple of B tensors
+
+        # Accumulate outputs and contexts per sequence
+        for b, (seq_r, seq_e) in enumerate(zip(split_ranks, split_exceptions)):
+            all_ranks.append(seq_r.tolist())
+            all_exceptions.append(seq_e.tolist())
+            seq_ctx = batch_contexts[b][:valid_counts[b]]
+            all_contexts_per_step.append(seq_ctx)
+
+        timers["filter_and_split"] += time.perf_counter() - start
+        global_seq_counter += B
+
+    return all_ranks, all_exceptions, timers, all_contexts_per_step
+
 
 # =====================================================
-# This file provides utility functions used in a past
+# These functions provide utility functions used in a past
 # phase of the project. They are retained here for reference
 # but are not actively used in the current codebase.
 # In particular, these functions is used in the TestModels
 # directory.
 # =====================================================
-
 
 
 # ====== compute_token_ranks_fast_old ====== #
