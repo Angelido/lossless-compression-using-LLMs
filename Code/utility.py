@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import os
-from typing import List, Tuple, Dict
+from typing import List, Dict, Tuple, Any, Union, Optional
 from transformers import PreTrainedTokenizer
 
 
@@ -53,6 +53,39 @@ def sort_chunks_by_length(
     return sorted_input_ids, new_mapping
 
 
+# ===== count_nonpad_tokens_per_row ===== #
+def count_nonpad_tokens_per_row(
+    input_id_list: List[torch.Tensor],
+    mapping: Dict[int, List[int]],
+    pad_token_id: int,
+    bos_token_id: int,
+) -> Dict[int, int]:
+    """
+    Count the number of non-padding tokens in each row of a list of input IDs. 
+    Use the mapping to determine which chunks belong to which original row. 
+    
+    Input:
+    - input_id_list: List of tensors containing input IDs.
+    - mapping: Dictionary mapping original row indices to chunk indices.
+    - pad_token_id: ID of the padding token. 
+    - bos_token_id: ID of the beginning-of-sequence token.
+    
+    Return:
+    - row_token_counts: Dictionary mapping original row indices to the count of non-padding tokens.
+    """
+    row_token_counts: Dict[int, int] = {}
+    for orig_idx, chunk_indices in mapping.items():
+        total = 0
+        for ci in chunk_indices:
+            ids: torch.Tensor = input_id_list[ci]
+            # Count only tokens != pad AND != bos
+            mask = (ids != pad_token_id) & (ids != bos_token_id)
+            nonpad_nobos = int(mask.sum().item())
+            total += nonpad_nobos
+        row_token_counts[orig_idx] = total
+    return row_token_counts
+
+
 # =============================================
 # ======= FUNCTIONS FOR CHECK CONDITIONS ======
 # =============================================
@@ -89,41 +122,6 @@ def check_bos_token_in_chunks(
     if all_correct:
         print("✅ All chunks correctly start with the BOS token.")
     return all_correct
-
-
-
-# ===== count_nonpad_tokens_per_row ===== #
-def count_nonpad_tokens_per_row(
-    input_id_list: List[torch.Tensor],
-    mapping: Dict[int, List[int]],
-    pad_token_id: int,
-    bos_token_id: int,
-) -> Dict[int, int]:
-    """
-    Count the number of non-padding tokens in each row of a list of input IDs. 
-    Use the mapping to determine which chunks belong to which original row. 
-    
-    Input:
-    - input_id_list: List of tensors containing input IDs.
-    - mapping: Dictionary mapping original row indices to chunk indices.
-    - pad_token_id: ID of the padding token. 
-    - bos_token_id: ID of the beginning-of-sequence token.
-    
-    Return:
-    - row_token_counts: Dictionary mapping original row indices to the count of non-padding tokens.
-    """
-    row_token_counts: Dict[int, int] = {}
-    for orig_idx, chunk_indices in mapping.items():
-        total = 0
-        for ci in chunk_indices:
-            ids: torch.Tensor = input_id_list[ci]
-            # Count only tokens != pad AND != bos
-            mask = (ids != pad_token_id) & (ids != bos_token_id)
-            nonpad_nobos = int(mask.sum().item())
-            total += nonpad_nobos
-        row_token_counts[orig_idx] = total
-    return row_token_counts
-
 
 
 # ====== verify_reconstruction ====== #
@@ -171,6 +169,116 @@ def verify_reconstruction(
                 print(f"\n✅ Match at index {idx}")
 
     return success
+
+
+# ====== check_context_traces_equal ====== #
+def check_context_traces_equal(
+    ctx_rank: List[List[List[int]]],
+    ctx_decode: Union[Dict[int, List[List[int]]], List[List[List[int]]]],
+    pad_token_id: Optional[int] = None,
+    max_report: int = 5,
+) -> Tuple[bool, List[Dict[str, Any]]]:
+    """
+    Compare per-step context traces produced by two pipelines and report mismatches.
+
+    This utility verifies that the per-step prefix contexts (token id lists) recorded
+    during rank computation and during decoding are identical for each sequence and
+    each step. It supports either a list-of-lists-of-lists or a dict-of-lists input
+    for the decoding traces and normalizes both inputs before comparison.
+
+    Input:
+    - ctx_rank (List[List[List[int]]]):
+        Reference contexts from the rank pipeline:
+        shape ~ [num_sequences][num_steps][prefix_length].
+    - ctx_decode (Union[Dict[int, List[List[int]]], List[List[List[int]]]]):
+        Contexts from the decode pipeline. Can be:
+          * Dict[int] -> List[step][token_id], keyed by global sequence index, or
+          * List[seq][step][token_id], same shape as ctx_rank.
+    - pad_token_id (Optional[int]):
+        If provided, PAD tokens are stripped from contexts prior to comparison.
+    - max_report (int):
+        Maximum number of mismatches to include in the report.
+
+    Return:
+    - ok (bool):
+        True if all sequences and steps match exactly (same number of steps and
+        identical token ids per step after optional PAD removal); False otherwise.
+    - diffs (List[Dict[str, Any]]):
+        Up to `max_report` mismatch entries. Each entry contains details such as:
+          * {"where": "num_sequences", "ctx_rank_len": ..., "ctx_decode_len": ...}
+          * {"seq_index": i, "type": "length_mismatch",
+             "ctx_rank_steps": ..., "ctx_decode_steps": ...}
+          * {"seq_index": i, "step": t, "type": "context_mismatch",
+             "rank_ctx": [...], "decode_ctx": [...]}
+    """
+    # Normalize ctx_decode to a list ordered by indices 0..N-1.
+    if isinstance(ctx_decode, dict):
+        if not ctx_decode:
+            ctx_decode_list = []
+        else:
+            keys = sorted(ctx_decode.keys())
+            # Require (or enforce) monotonic ordering by key; map to a contiguous list.
+            ctx_decode_list = [ctx_decode[k] for k in keys]
+    else:
+        ctx_decode_list = ctx_decode
+
+    # Check sequence count parity before deeper comparisons.
+    if len(ctx_rank) != len(ctx_decode_list):
+        return False, [{
+            "where": "num_sequences",
+            "ctx_rank_len": len(ctx_rank),
+            "ctx_decode_len": len(ctx_decode_list)
+        }]
+
+    def _norm_context(c: List[int]) -> List[int]:
+        """Optionally strip PAD tokens from a context (defensive normalization)."""
+        if pad_token_id is None:
+            return c
+        return [x for x in c if x != pad_token_id]
+
+    diffs: List[Dict[str, Any]] = []
+    ok = True
+
+    # Compare sequence by sequence.
+    for i in range(len(ctx_rank)):
+        A = ctx_rank[i]
+        B = ctx_decode_list[i]
+
+        # Step-count comparison for sequence i.
+        if len(A) != len(B):
+            ok = False
+            diffs.append({
+                "seq_index": i,
+                "type": "length_mismatch",
+                "ctx_rank_steps": len(A),
+                "ctx_decode_steps": len(B),
+            })
+            if len(diffs) >= max_report:
+                break
+            # Continue to compare common prefix of steps even if lengths differ.
+
+        steps = min(len(A), len(B))
+
+        # Step-wise context comparison.
+        for t in range(steps):
+            a = _norm_context(A[t])
+            b = _norm_context(B[t])
+            if a != b:
+                ok = False
+                diffs.append({
+                    "seq_index": i,
+                    "step": t,
+                    "type": "context_mismatch",
+                    "rank_ctx": a,
+                    "decode_ctx": b,
+                })
+                if len(diffs) >= max_report:
+                    break
+
+        if len(diffs) >= max_report:
+            break
+
+    return ok, diffs
 
 
 # =============================================
