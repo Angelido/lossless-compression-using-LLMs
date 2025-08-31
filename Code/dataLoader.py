@@ -37,7 +37,6 @@ class ChunkDataset(Dataset):
         return self.input_ids[idx]
 
 
-
 # ====== create_chunk_dataloader ====== #
 def create_chunk_dataloader(
     input_id_list: List[torch.Tensor], 
@@ -55,7 +54,6 @@ def create_chunk_dataloader(
     '''
     dataset = ChunkDataset(input_id_list)
     return DataLoader(dataset, batch_size=batch_size, shuffle=False)
-
 
 
 # ====== preprocess_dataset_fast ====== #
@@ -117,7 +115,6 @@ def preprocess_dataset_fast(
         mapping.setdefault(orig_idx, []).append(chunk_idx)
 
     return all_input_ids, mapping
-
 
 
 # ====== preprocess_dataset_fast_unixcoder ====== #
@@ -220,11 +217,9 @@ def get_token_info(tokenizer: torch.nn.Module):
     return info
 
 
-
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
-
 
 
 # ====== preprocess_dataset_fast_old ====== #
@@ -270,7 +265,6 @@ def preprocess_dataset_fast_old(
         mapping.setdefault(orig_idx, []).append(chunk_idx)
 
     return all_input_ids, mapping
-
 
 
 # ====== preprocess_dataset_fast_single ====== #

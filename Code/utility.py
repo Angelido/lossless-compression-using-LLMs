@@ -6,7 +6,6 @@ from typing import List, Dict, Tuple, Any, Union, Optional
 from transformers import PreTrainedTokenizer
 
 
-
 # =====================================================
 # This file contains general utility functions used across
 # all the codes. These functions provide support for tasks 
@@ -86,9 +85,9 @@ def count_nonpad_tokens_per_row(
     return row_token_counts
 
 
-# =============================================
-# ======= FUNCTIONS FOR CHECK CONDITIONS ======
-# =============================================
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Functions for checking conditions and verifying correctness
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 # ===== check_bos_token_in_chunks ===== #
@@ -281,9 +280,9 @@ def check_context_traces_equal(
     return ok, diffs
 
 
-# =============================================
-# ======= FUNCTIONS FOR SAVE INFORMATION ======
-# =============================================
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Functions for saving information to files
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
 # ====== save_rank_list_to_file ====== #
@@ -305,7 +304,6 @@ def save_rank_list_to_file(rank_list: List[List[int]], file_path: str,
         for sublist in rank_list:
             file.write(f"[{' '.join(map(str, sublist))}]\n")
             
-
 
 # ====== save_info_to_csv ====== #            
 def save_info_to_csv(
@@ -338,13 +336,11 @@ def save_info_to_csv(
     else:
         df_row.to_csv(csv_path, mode="a", header=False, index=False)
         print(f"Riga aggiunta al CSV esistente: {csv_path}")
-        
 
  
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
-
 
 
 # ====== sort_rank_lists_by_length ====== #

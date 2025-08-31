@@ -16,9 +16,11 @@ from tqdm import tqdm
 #     back to tokens).
 # =====================================================
 
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # (1) Compute token ranks for each file using the selected LLM
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 
 # ====== compute_token_ranks_topk_fast ====== #
 @torch.no_grad()
@@ -221,7 +223,6 @@ def compute_token_ranks_topk_fast(
     return all_ranks, all_exceptions, timers
 
 
-
 # ====== compute_token_ranks_fullrank_fast ====== #
 @torch.no_grad()
 def compute_token_ranks_fullrank_fast(
@@ -377,7 +378,6 @@ def compute_token_ranks_fullrank_fast(
         timers["filter_and_split"] += time.perf_counter() - start
 
     return all_ranks, all_exceptions, timers
-
 
 
 # ====== compute_token_ranks_topk_fast_unixcoder ====== #
@@ -579,7 +579,6 @@ def compute_token_ranks_topk_fast_unixcoder(
     return all_ranks, all_exceptions, timers
 
 
-
 # ====== compute_token_ranks_fullrank_fast_unixcoder ====== #
 @torch.no_grad()
 def compute_token_ranks_fullrank_fast_unixcoder(
@@ -743,6 +742,7 @@ def compute_token_ranks_fullrank_fast_unixcoder(
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # (2) Perform the inverse operation (convert ranks back to tokens).
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 
 # ====== decode_ranks_batched ====== #
 def decode_ranks_batched(
@@ -948,11 +948,10 @@ def decode_ranks_batched(
     return decoded_token_ids, contexts_per_seq
 
 
-
-
 # ===================================================================================================
 # ================================ OLD FUNCTIONS - NOT USED =========================================
 # ===================================================================================================
+
 
 # =====================================================
 # These functions are retained for reference but not used
