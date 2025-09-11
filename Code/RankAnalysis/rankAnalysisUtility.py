@@ -4,6 +4,53 @@ import matplotlib.pyplot as plt
 import os
 from typing import List, Dict, Any
 from collections import Counter
+import re
+
+
+# ====== read_execution_time_seconds ====== #
+def read_execution_time_seconds(file_path: str) -> float:
+    """
+    Parse the first (header) line of a rank-list file and return the execution time in seconds.
+    Expected header example:
+    
+        "Execution time (google/codegemma-2b processing): 2349.5100 seconds"
+        
+    Input:
+    - file_path (str): Path to the file containing the rank list.
+
+    Return:
+    - float: execution time in seconds
+
+    Raise:
+    - ValueError: if the file is empty or a seconds value cannot be parsed.
+    """
+    with open(file_path, "r") as f:
+        # Read first non-empty line (in case of leading blanks)
+        first_line = ""
+        for line in f:
+            line = line.strip()
+            if line:
+                first_line = line
+                break
+
+    if not first_line:
+        raise ValueError("File is empty or header line missing.")
+
+    # Match a float-like number followed by a seconds unit
+    # Supports: 1234, 1,234.56, 1234.56, 1.23e3
+    pattern = r'([0-9][0-9_,]*(?:\.[0-9_]+)?(?:[eE][+-]?[0-9]+)?)\s*(?:s|sec|secs|second|seconds)\b'
+    m = re.search(pattern, first_line, flags=re.IGNORECASE)
+    if not m:
+        # Fallback: take the last numeric token if unit missing but number present
+        m = re.search(r'([0-9][0-9_,]*(?:\.[0-9_]+)?(?:[eE][+-]?[0-9]+)?)', first_line)
+        if not m:
+            raise ValueError(f"Could not parse execution time from header: {first_line!r}")
+
+    num_str = m.group(1).replace(",", "").replace("_", "")
+    try:
+        return float(num_str)
+    except ValueError as e:
+        raise ValueError(f"Found numeric token but could not convert to float: {num_str!r}") from e
 
 
 # ====== read_rank_list_to_dataframe ====== #
@@ -13,10 +60,10 @@ def read_rank_list_to_dataframe(file_path: str) -> pd.DataFrame:
     Ignores the first line (header) and assumes each following line is in the format: [1 2 3 4].
     
     Input:
-        - file_path: Path to the file containing the rank list.
+    - file_path (str): Path to the file containing the rank list.
     
     Return:
-        - df: A Pandas DataFrame containing the rank list.
+    - df (pd.DataFrame): A Pandas DataFrame containing the rank list.
     """
     rank_list: List[List[int]] = []
     with open(file_path, 'r') as f:
@@ -39,10 +86,10 @@ def get_file_size_mb(filepath: str) -> float:
     """Returns the file size in megabytes (MB).
     
     Input:
-    - filepath: Path to the file.
+    - filepath (str): Path to the file.
     
     Return:
-    - size_bytes: Size of the file in MB.
+    - size_bytes (float): Size of the file in MB.
     """
     size_bytes = os.path.getsize(filepath)
     return size_bytes / (1024 * 1024)  # convert to MB
@@ -60,8 +107,8 @@ def analyze_rank_list_df(
     as well as central tendency and dispersion metrics and selected percentiles.
 
     Input:
-    - df: pandas DataFrame with a column of integer lists
-    - column: name of the target column (default 'Rank List')
+    - df (pd.DataFrame): pandas DataFrame with a column of integer lists
+    - column (str): name of the target column (default 'Rank List')
 
     Return:
     - dict with keys:
@@ -135,8 +182,8 @@ def compute_range_percentages(
     Compute the percentage of occurrences for specific ranges.
 
     Input:
-    - frequency: dict mapping number → count
-    - total_numbers: total count of all numbers
+    - frequency (Dict[int, int]): dict mapping number → count
+    - total_numbers (int): total count of all numbers
 
     Return:
     - Dict[str, float]: percentages for the keys:
@@ -191,8 +238,8 @@ def compute_list_statistics(
     Compute numerical summary statistics for each list and across lists.
 
     Input:
-    - df: pandas DataFrame with a column of integer lists
-    - column: name of the target column (default 'Rank List')
+    - df (pd.DataFrame): pandas DataFrame with a column of integer lists
+    - column (str): name of the target column (default 'Rank List')
 
     Return:
     - dict with keys:
@@ -246,12 +293,12 @@ def plot_frequency_curve(
     The x-axis represents the numbers and the y-axis represents their frequency.
 
     Input:
-    - frequency: dict[int, int] mapping number → frequency
-    - save_fig: if True, saves the plot in the 'Figures' folder
-    - plot_name: filename for saving the plot (inside 'Figures/')
-    - show_fig: if True, displays the plot; otherwise lo chiude
-    - log_x: if True, usa scala logaritmica sull'asse x
-    - log_y: if True, usa scala logaritmica sull'asse y
+    - frequency (Dict[int, int]): dict[int, int] mapping number → frequency
+    - save_fig (bool): if True, saves the plot in the 'Figures' folder
+    - plot_name (str): filename for saving the plot (inside 'Figures/')
+    - show_fig (bool): if True, displays the plot; otherwise lo chiude
+    - log_x (bool): if True, usa scala logaritmica sull'asse x
+    - log_y (bool): if True, usa scala logaritmica sull'asse y
     """
     
     # Sort data
@@ -381,12 +428,12 @@ def plot_frequency_histogram(
     Plots a histogram of the frequency distribution.
 
     Input:
-    - frequency: dict[int, int] mapping number → frequency
-    - save_fig: if True, saves the plot in the 'Figures' folder
-    - plot_name: filename for saving the plot (inside 'Figures/')
-    - show_fig: if True, displays the plot; otherwise it closes it
-    - log_x: if True, applies log scale to x-axis
-    - log_y: if True, applies log scale to y-axis
+    - frequency (Dict[int, int]): dict[int, int] mapping number → frequency
+    - save_fig (bool): if True, saves the plot in the 'Figures' folder
+    - plot_name (str): filename for saving the plot (inside 'Figures/')
+    - show_fig (bool): if True, displays the plot; otherwise it closes it
+    - log_x (bool): if True, applies log scale to x-axis
+    - log_y (bool): if True, applies log scale to y-axis
     """
     sorted_items = sorted(frequency.items())  # Sort by number
     numbers = [item[0] for item in sorted_items]
@@ -438,12 +485,12 @@ def plot_cdf(
     Plot the cumulative distribution function (CDF) for a frequency dictionary.
 
     Input:
-    - frequency: dict mapping number → count
-    - save_fig: if True, save the plot under 'Figures/'
-    - plot_name: filename for saving the plot
-    - show_fig: if True, display the plot; otherwise close it
-    - log_x: if True, use logarithmic scale on x-axis
-    - log_y: if True, use logarithmic scale on y-axis
+    - frequency (Dict[int, int]): dict mapping number → count
+    - save_fig (bool): if True, save the plot under 'Figures/'
+    - plot_name (str): filename for saving the plot
+    - show_fig (bool): if True, display the plot; otherwise close it
+    - log_x (bool): if True, use logarithmic scale on x-axis
+    - log_y (bool): if True, use logarithmic scale on y-axis
     """
     # Sort values and compute cumulative frequencies
     numbers = np.array(sorted(frequency.keys()))
