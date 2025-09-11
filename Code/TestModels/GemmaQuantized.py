@@ -19,7 +19,8 @@ from utility import (
 
 # Login to Hugging Face Hub
 from huggingface_hub import login
-login(token="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")
+# Insert hugginface token with the necessary permission
+# login(token="TOKEN"")
 
 # Model name
 model_name = "unsloth/gemma-2-2b-bnb-4bit"  # Not specialized for code

@@ -1,16 +1,15 @@
 import pandas as pd
 import time
 import torch
-from awq import AutoAWQForCausalLM
 import sys
 import os
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_old
 from computeRank import compute_token_ranks_fast_old
+from dataLoader import create_chunk_dataloader, preprocess_dataset_fast_old
 from utility import ( 
     save_rank_list_to_file,
     count_nonpad_tokens_per_row, 
@@ -23,25 +22,29 @@ from huggingface_hub import login
 # login(token="TOKEN"")
 
 # Model name
-model_name = "PrunaAI/google-codegemma-2b-AWQ-4bit-smashed"  # Specialized for code
+model_name = "unsloth/mistral-7b-bnb-4bit"
 
 # Model tokenizer
-tokenizer = AutoTokenizer.from_pretrained("google/codegemma-2b") # Specialized for code
+tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+tokenizer.pad_token = tokenizer.eos_token 
 
-# Set the pad token to the end of the sequence if it is not already set
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-PAD_TOKEN_ID = tokenizer.pad_token_id  
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,                       # load weights in 4-bit
+    bnb_4bit_use_double_quant=True,          # double quantization
+    bnb_4bit_quant_type="nf4",               # NF4 quant type
+    bnb_4bit_compute_dtype=torch.float16,    # compute in fp16 (use bfloat16 if your GPU likes it)
+)
 
-model = AutoAWQForCausalLM.from_quantized(
+model = AutoModelForCausalLM.from_pretrained(
     model_name,
-    fuse_layers=True,
-    trust_remote_code=True,
-    safetensors=True
+    quantization_config=bnb_config,
+    device_map="auto",
+    torch_dtype=torch.float16,
 )
 
 batch_size = 32
 max_length = 512
+PAD_TOKEN_ID = tokenizer.pad_token_id
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -50,6 +53,7 @@ print("device=", device)
 
 df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
+# input_texts = df["text"].head(32).tolist()
 
 # Preprocessing and chunking
 input_id_list, mapping = preprocess_dataset_fast_old(
@@ -104,7 +108,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/CodeGemmaQuantized_rank_list.txt",
+    file_path="TextInformation/rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
