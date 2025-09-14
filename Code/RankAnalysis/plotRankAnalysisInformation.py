@@ -372,127 +372,151 @@ def plot_llm_throughput_vs_params(
     legend_title: str = "Model",
     logy_scale: bool = False,
     logx_scale: bool = False,
-    add_hline: bool = False,        
+    add_hline: bool = False,
     hline_y: float = 0.095,
-    highlight_above: bool = True    
+    highlight_above: bool = False,   # rings only when True (+ add_hline)
+    *,
+    special_model: str = "CodeT5",
+    # Colorblind-friendly defaults (Okabe–Ito-ish): blue & vermillion; both readable with black
+    ring_edgecolor_others: str = "#009E73",  # bluish
+    ring_edgecolor_special: str = "#D55E00", # vermillion
+    label_color_others: str = "#009E73",     # legend text color for “above” models
+    label_color_special: str = "#D55E00",    # legend text color for special model
+    base_marker_size: int = 100,
+    ring_marker_size: int = 220,
+    annotate_fontsize: int = 9,
 ) -> None:
     """
-    Plots scatter of Throughput vs Model Memory Usage, colored by model.
-    Adds a legend with model names outside the plot area.
-    
-    Input:
-    - df: DataFrame containing 'model', 'llm_throughput', and 'memory_usage_GB' columns.
-    - palette: Color palette for the models.
-    - annotate_points: If True, annotates points with model names.
-    - save: If True, saves the plot to a file.
-    - save_path: Path to save the plot if `save` is True.
-    - legend_title: Title for the legend.
+    Scatter: Throughput (MB/s) vs Model Memory (GB).
+
+    Behavior
+    --------
+    - Base layer: filled markers colored by a palette for all points.
+    - If add_hline & highlight_above:
+        Overlay hollow ring markers ONLY for points with y > hline_y:
+          * ring_edgecolor_others for normal models,
+          * ring_edgecolor_special for `special_model`.
+    - Legend:
+        * marker symbols are ALWAYS normal filled circles for everyone,
+        * label text is bold RED for `special_model`,
+        * bold “others color” only for models with >=1 point above hline,
+        * bold BLACK for the rest.
+
+    Parameters
+    ----------
+    df : DataFrame with columns: 'model', 'throughput_MB_s', 'memory_usage_GB'.
     """
     required = {"model", "throughput_MB_s", "memory_usage_GB"}
     if not required.issubset(df.columns):
-        raise ValueError(f"Required columns missing: {required}")
+        missing = required - set(df.columns)
+        raise ValueError(f"Required columns missing: {missing}")
 
-    models = df['model'].unique()
-    colors = dict(zip(models, sns.color_palette(palette, len(models))))
+    models = df["model"].unique()
+    base_colors = dict(zip(models, sns.color_palette(palette, len(models))))
 
-    # Create the scatter plot
-    fig, ax = plt.subplots(figsize=(10, 7))
-    plt.subplots_adjust(right=0.77)  # Leave space for the legend
-    
+    # Determine which models have at least one point above the threshold
     models_above = set()
-
-    for model in models:
-        sub = df[df['model'] == model]
-        ax.scatter(
-            sub['memory_usage_GB'],
-            sub['throughput_MB_s'],
-            label=model,
-            color=colors[model],
-            s=100,
-            alpha=0.8
-        )
-        # cerchi rossi per punti sopra soglia
-        if add_hline and highlight_above:
-            mask = sub['throughput_MB_s'] > hline_y
-            if mask.any():
-                models_above.add(model)
-                ax.scatter(
-                    sub.loc[mask, 'memory_usage_GB'],
-                    sub.loc[mask, 'throughput_MB_s'],
-                    s=220,
-                    facecolors='none',
-                    edgecolors='red',
-                    linewidths=1.8
-                )
-
-        if annotate_points:
-            for _, row in sub.iterrows():
-                ax.text(
-                    row['memory_usage_GB'],
-                    row['throughput_MB_s'],
-                    model,
-                    fontsize=9,
-                    ha='left',
-                    va='bottom'
-                )
-
-    ax.set_xlabel("Model Memory Usage (GB)", fontsize=12)
-    ax.set_ylabel("LLM Throughput", fontsize=12)
-    ax.set_title("LLM Throughput vs Model Memory Usage", fontsize=14, fontweight='bold')
-    ax.grid(True, linestyle='--', alpha=0.6)
-
-    # External legend
-    legend = ax.legend(
-        title=legend_title,
-        bbox_to_anchor=(1.02, 1),  # Position outside the plot
-        loc="upper left",
-        borderaxespad=0.
-    )
-    legend._legend_box.align = "left"
-    
-    # Scale log se richiesto
-    if logx_scale:
-        ax.set_xscale('log', base=10)  # in versioni vecchie: ax.set_xscale('log') o basex
-    if logy_scale:
-        ax.set_yscale('log', base=10)
-    
     if add_hline:
-        ax.axhline(
-            y=hline_y,
-            color='red',
-            linestyle='--',
-            linewidth=1.75,
-            alpha=0.9,
-            label=f"y = {hline_y:g}"
+        for m in models:
+            sub = df[df["model"] == m]
+            if (sub["throughput_MB_s"] > hline_y).any():
+                models_above.add(m)
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+    plt.subplots_adjust(right=0.77)
+
+    # Base filled markers
+    for m in models:
+        sub = df[df["model"] == m]
+        ax.scatter(
+            sub["memory_usage_GB"],
+            sub["throughput_MB_s"],
+            label=m,
+            color=base_colors[m],
+            s=base_marker_size,
+            alpha=0.85,
         )
 
-    # legenda con proxy per "Above threshold"
-    handles, labels = ax.get_legend_handles_labels()
-    if add_hline and highlight_above:
-        proxy = Line2D([], [], linestyle='None', marker='o', markersize=8,
-                       markerfacecolor='none', markeredgecolor='red',
-                       markeredgewidth=1.8, label=f"Above {hline_y:g}")
-        handles.append(proxy)
-        labels.append(f"Above {hline_y:g}")
+    # Horizontal reference line
+    if add_hline:
+        ax.axhline(y=hline_y, color="teal", linestyle="--", linewidth=1.6, alpha=0.9)
 
-    # evidenzia in legenda i modelli sopra soglia
+    # Ring overlays ONLY for points above threshold (when enabled)
+    if add_hline and highlight_above:
+        for m in models:
+            sub = df[df["model"] == m]
+            mask = sub["throughput_MB_s"] > hline_y
+            if not mask.any():
+                continue
+            edge = ring_edgecolor_special if m == special_model else ring_edgecolor_others
+            ax.scatter(
+                sub.loc[mask, "memory_usage_GB"],
+                sub.loc[mask, "throughput_MB_s"],
+                s=ring_marker_size,
+                facecolors="none",
+                edgecolors=edge,
+                linewidths=1.8,
+            )
+
+    # Optional annotations (match ring color if a ring is shown on that point)
+    if annotate_points:
+        for _, row in df.iterrows():
+            color = "black"
+            if add_hline and highlight_above and (row["throughput_MB_s"] > hline_y):
+                color = ring_edgecolor_special if row["model"] == special_model else ring_edgecolor_others
+            ax.text(
+                row["memory_usage_GB"],
+                row["throughput_MB_s"],
+                row["model"],
+                fontsize=annotate_fontsize,
+                color=color,
+                ha="left",
+                va="bottom",
+            )
+
+    # Axes / scales / grid
+    ax.set_xlabel("Model Memory Usage (GB)", fontsize=12)
+    ax.set_ylabel("LLM Throughput (MB/s)", fontsize=12)
+    ax.set_title("LLM Throughput vs Model Memory Usage", fontsize=14, fontweight="bold")
+    ax.grid(True, linestyle="--", alpha=0.6)
+    if logx_scale: ax.set_xscale("log", base=10)
+    if logy_scale: ax.set_yscale("log", base=10)
+
+    # Legend proxies: ALWAYS normal filled markers, no rings in legend
+    proxies, labels = [], []
+    for m in models:
+        proxies.append(Line2D([], [], linestyle="None", marker="o", markersize=8,
+                              markerfacecolor=base_colors[m], markeredgecolor=base_colors[m]))
+        labels.append(m)
+
+    legend = ax.legend(
+        handles=proxies,
+        labels=labels,
+        title=legend_title,
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        borderaxespad=0.0,
+        frameon=True,
+    )
+
+    # Legend text colors as requested
     for txt in legend.get_texts():
         name = txt.get_text()
-        if name in models_above:
-            txt.set_color('red')
-            txt.set_fontweight('bold')
-            try:
-                txt.set_underline(True)  # se supportato dalla tua versione di matplotlib
-            except Exception:
-                pass
+        txt.set_fontweight("bold")
+        if name == special_model:
+            txt.set_color(label_color_special)
+        elif add_hline and highlight_above and (name in models_above):
+            txt.set_color(label_color_others)
+        else:
+            txt.set_color("black")
+
     try:
         legend._legend_box.align = "left"
     except Exception:
         pass
 
     if save:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.show()
 
 
@@ -518,7 +542,7 @@ if __name__ == "__main__":
         "StarCoder2_32"
     ]
     bin_cols = ['bin_eq_0', 'bin_0_1', 'bin_1_3', 'bin_3_7', 'bin_7_15', 'bin_15_31', 'bin_31_63']
-    bin_labels = ['=0', '0–1', '1–3', '3–7', '7–15', '15–31', '31–63']
+    bin_labels = ['0', '1', '2–3', '4–7', '8–15', '16–31', '32–63']
 
 
     plot_rank_heatmap(data_ability, bin_cols, bin_labels, True)
@@ -546,5 +570,10 @@ if __name__ == "__main__":
         save_path="llm_throughput_vs_memory_final_models.png",
         add_hline=True,
         hline_y=0.095,
-        highlight_above=True
+        highlight_above=True,
+        special_model="CodeT5",
+        ring_edgecolor_others="#009E73",
+        ring_edgecolor_special="#D55E00",
+        label_color_others="#009E73",
+        label_color_special="#D55E00"
     )
