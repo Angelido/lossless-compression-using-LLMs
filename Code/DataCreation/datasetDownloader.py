@@ -1,3 +1,39 @@
+"""
+=======================================================
+Module: datasetDownloader
+
+Description:
+    This script is designed to download and prepare datasets
+    for multiple programming languages from the
+    "HuggingFaceTB/stack-edu" collection. Unlike Cpp,
+    which required special handling (see datasetCppDownloader.py),
+    all other languages (Python, C, Java, JavaScript, CSharp)
+    are processed with this unified pipeline.
+
+    The script performs the following steps:
+        1. Loads the dataset for the chosen language.
+        2. Shuffles the dataset to randomize file order.
+        3. Selects files until the total accumulated size
+           reaches approximately 100MB.
+        4. Downloads file contents from the "softwareheritage"
+           S3 bucket and decompresses them.
+        5. Keeps only files successfully downloaded.
+        6. Saves the final dataset as a CSV in the Dataset folder.
+
+Usage:
+    Set the desired language in the variable `language`
+    (options: Python, C, Java, JavaScript, CSharp),
+    then run the script:
+
+        $ python datasetDownloader.py
+
+Output:
+    Dataset/<Language>100MB.csv
+=======================================================
+"""
+
+
+
 import boto3
 import gzip
 import os
@@ -6,7 +42,6 @@ from datasets import load_dataset
 from botocore.exceptions import ClientError
 from botocore import UNSIGNED
 from botocore.config import Config
-
 
 
 # ====== Download Contents ====== #

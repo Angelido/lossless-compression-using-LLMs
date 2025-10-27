@@ -1,3 +1,31 @@
+"""
+=======================================================
+Module: datasetCppDownloader
+
+Description:
+    This script is specifically designed to download and prepare
+    a dataset for the Cpp language from the "HuggingFaceTB/stack-edu"
+    collection. Unlike other languages, Cpp required a separate
+    handling because the generated files were often either too small
+    or too large, making the general pipeline unsuitable.
+
+    The script performs the following steps:
+        1. Loads and shuffles the original Cpp dataset.
+        2. Filters files by length (≈3000 bytes ±500).
+        3. Selects a subset that accumulates to a maximum of 100MB.
+        4. Downloads the corresponding file contents from the
+           "softwareheritage" S3 bucket (decompressed via gzip).
+        5. Stores the final dataset as a CSV in the Dataset folder.
+
+Usage:
+    Run this script directly to generate the processed Cpp dataset:
+        $ python datasetCppDownloader.py
+
+Output:
+    Dataset/Cpp_100MB.csv
+=======================================================
+"""
+
 import boto3
 import gzip
 import os
@@ -47,9 +75,11 @@ def download_contents(blob_id: str) -> dict[str, object]:
 
 # ====== Main ====== #
 if __name__ == "__main__":
+    
     # ----------------------------------------------------------------------
     # Settings: language, limits, and size-target parameters
     # ----------------------------------------------------------------------
+    
     language = "Cpp"  # Python, C, Cpp, Java, JavaScript, CSharp
     max_total_bytes = 100 * 1024 * 1024  # 100 MB limit
 
@@ -60,6 +90,7 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------
     # Load and shuffle dataset
     # ----------------------------------------------------------------------
+    
     ds = load_dataset("HuggingFaceTB/stack-edu", language, split="train", num_proc=1)
     print("Original dataset: ", ds)
     ds_shuffled = ds.shuffle(seed=42)
@@ -67,6 +98,7 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------
     # Filter files by length_bytes within tolerance of target_size
     # ----------------------------------------------------------------------
+    
     def is_within_target_size(example):
         return abs(example["length_bytes"] - target_size) <= tolerance
 
@@ -76,6 +108,7 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------
     # Select subset accumulating up to max_total_bytes
     # ----------------------------------------------------------------------
+    
     selected_indices = []
     total_size = 0
     for i, example in enumerate(ds_filtered):
@@ -94,6 +127,7 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------
     # Download the selected files from S3
     # ----------------------------------------------------------------------
+    
     s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
     bucket_name = "softwareheritage"
 
@@ -104,7 +138,8 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------------
     # Save to CSV
     # ----------------------------------------------------------------------
+    
     os.makedirs("Dataset", exist_ok=True)
-    output_path = f"Dataset/{language}_approx3000bytes_100MB.csv"
+    output_path = f"Dataset/{language}_100MB.csv"
     ds_small.to_csv(output_path)
     print(f"Saved CSV to {output_path}")

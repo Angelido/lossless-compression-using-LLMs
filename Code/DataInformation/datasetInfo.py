@@ -1,11 +1,17 @@
-import pandas as pd 
+"""
+Module: dataset_info
 
-# =======================================================
-# This file is used to gather information about the datasets
-# generated with the code in the DataCreation folder.
-# Specifically, it is intended for the larger datasets 
-# (one dataset per language, each approximately 100MB).
-# =======================================================
+Description:
+    This script gathers information about the datasets generated
+    with the code in the DataCreation folder. It is designed for
+    large datasets (≈100MB each, one per language). For each dataset,
+    it reports:
+        - number of rows
+        - total size in bytes and MB
+        - average bytes per file
+"""
+
+import pandas as pd 
 
 language = {
     "python": "Python",

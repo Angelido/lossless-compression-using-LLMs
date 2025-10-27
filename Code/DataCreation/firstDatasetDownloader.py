@@ -1,3 +1,38 @@
+"""
+=======================================================
+Module: firstDatasetDownloader
+
+Description:
+    This script was used to create an initial small dataset
+    (~10 MB) for testing and experimentation purposes.
+    It downloads a random subset of files for a chosen language
+    from the "HuggingFaceTB/stack-edu" collection, retrieves the
+    corresponding contents from the "softwareheritage" S3 bucket,
+    and stores the results in a CSV file.
+
+    In the original workflow, this script was used to download
+    datasets separately for each language, and the resulting
+    CSV files were later combined into a unified dataset using
+    createFirstDataset.py.
+
+Steps performed:
+    1. Load the dataset for the chosen language (example: CSharp).
+    2. Shuffle the dataset to ensure random sampling.
+    3. Select a subset of files until reaching a total of ~10 MB.
+    4. Download and decompress the file contents from S3.
+    5. Keep only successfully downloaded files.
+    6. Save the resulting dataset to a CSV file.
+
+Usage:
+    Set the language directly in the load_dataset call and run:
+
+        $ python firstDatasetDownloader.py
+
+Output:
+    Dataset/<Language>.csv  (e.g., Dataset/C-Sharp.csv)
+=======================================================
+"""
+
 import boto3
 import gzip
 import os
@@ -5,6 +40,7 @@ from datasets import load_dataset
 from botocore.exceptions import ClientError
 from botocore import UNSIGNED
 from botocore.config import Config
+
 
 # ====== Download Contents ====== #
 def download_contents(blob_id: str) -> dict[str, object]:
@@ -42,9 +78,11 @@ def download_contents(blob_id: str) -> dict[str, object]:
 
 # ====== Main ====== #
 if __name__ == "__main__":
+    
+    language = "C-Sharp" # Set the language that you want
 
-    # Load the Stack-Edu dataset (set the language that you want)
-    ds = load_dataset("HuggingFaceTB/stack-edu", "CSharp", split="train", num_proc=1)
+    # Load the Stack-Edu dataset
+    ds = load_dataset("HuggingFaceTB/stack-edu", language, split="train", num_proc=1)
     print("Original dataset: \n", ds)
 
     # Set a maximum total size limit of 10 MB
@@ -83,4 +121,4 @@ if __name__ == "__main__":
 
     # Save the final dataset to a CSV file
     os.makedirs("Dataset", exist_ok=True)
-    ds_small.to_csv("Dataset/C-Sharp.csv")
+    ds_small.to_csv(f"Dataset/{language}.csv")

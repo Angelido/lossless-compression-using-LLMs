@@ -1,3 +1,36 @@
+"""
+=======================================================
+Module: createFirstDataset
+
+Description:
+    This script merges the six small per-language datasets
+    (≈10 MB each) into a single combined dataset (~60 MB).
+    These smaller datasets were previously downloaded
+    using FirstDatasetDownloader.py for each language.
+
+    The resulting merged dataset was used for the first
+    phase of experimentation.
+
+Steps performed:
+    1. Load CSV datasets for each programming language.
+    2. Concatenate them into a single DataFrame.
+    3. Report statistics:
+        - number of samples per language
+        - total size in bytes
+        - size per language (bytes and MB)
+        - average size per sample by language
+    4. Save the final combined dataset as a CSV file.
+
+Usage:
+    Run the script directly:
+
+        $ python createFirstDataset.py
+
+Output:
+    Dataset/CodeDataset.csv
+=======================================================
+"""
+
 import pandas as pd
 import os
 
