@@ -11,6 +11,11 @@ This repository explores **lossless data compression using Large Language Models
 The primary objective is to investigate novel compression techniques that aim to improve the **compression ratio** while maintaining a **throughput comparable to classical compressors**.
 
 The research focuses exclusively on **source code compression**, as the project is conducted within the context of **[Software Heritage](https://www.softwareheritage.org/)**.  
+
+---
+
+## Datasets
+
 The source code datasets used in this study were collected from Software Heritage archives via the `boto` libraries, covering six widely-used programming languages:
 
 - **C**
@@ -19,10 +24,6 @@ The source code datasets used in this study were collected from Software Heritag
 - **Python**
 - **Java**
 - **JavaScript**
-
----
-
-## Datasets
 
 Two phases of dataset preparation were performed:
 
