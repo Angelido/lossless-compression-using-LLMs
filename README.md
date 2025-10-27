@@ -14,6 +14,19 @@ The research focuses exclusively on **source code compression**, as the project 
 
 ---
 
+## Compression Pipelines
+
+This work introduces novel **lossless compression pipelines** that integrate Large Language Models into the traditional compression workflow.  
+The pipelines are designed to improve the **compression ratio** while keeping **throughput close to that of classical compressors**.
+
+Below is a schematic representation of the pipelines:
+
+![First Compression Pipeline](Figures/Pipeline1.png)
+
+![Second Compression Pipeline](Figures/Pipeline2.png)
+
+---
+
 ## Datasets
 
 The source code datasets used in this study were collected from Software Heritage archives via the `boto` libraries, covering six widely-used programming languages:
