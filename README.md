@@ -16,10 +16,9 @@ The research focuses exclusively on **source code compression**, as the project 
 
 ## Compression Pipelines
 
-This work introduces novel **lossless compression pipelines** that integrate Large Language Models into the traditional compression workflow.  
-The pipelines are designed to improve the **compression ratio** while keeping **throughput close to that of classical compressors**.
+This work introduces novel **lossless compression pipelines** that integrate Large Language Models into the traditional compression workflow. The pipelines are designed to improve the **compression ratio** while keeping **throughput close to that of classical compressors**.
 
-Below is a schematic representation of the pipelines:
+Below is a schematic representation of the two pipelines:
 
 ![First Compression Pipeline](Figures/Pipeline1.png)
 
