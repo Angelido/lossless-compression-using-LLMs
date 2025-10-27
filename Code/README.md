@@ -33,11 +33,9 @@ The repository is organized into topic-specific folders:
 * **Entropy** → Experiments measuring the entropy of each model on various datasets,
   in order to compare theoretical entropy bounds with practical compression results.
 
-* **OldFiles** → Legacy code no longer in use, kept for reference.
-
 * **Parsing** → Explores parsing as a preprocessing step before compression.
   Pipeline:
-  `text → parsing → tokenization + dataloader (dictionary) → computeRan (dataloader) → compression (all)`.
+  `text → parsing → tokenization + dataloader (dictionary) → computeRank (dataloader) → compression (all)`.
 
 * **RankAnalysis** → Code for analyzing the rank predictions of different models,
   used to assess how well models predict tokens.
