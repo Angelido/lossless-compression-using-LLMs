@@ -21,9 +21,9 @@ The pipelines are designed to improve the **compression ratio** while keeping **
 
 Below is a schematic representation of the pipelines:
 
-![First Compression Pipeline](Figures/pipeline1.png)
+![First Compression Pipeline](Figures/Pipeline1.png)
 
-![Second Compression Pipeline](Figures/pipeline2.png)
+![Second Compression Pipeline](Figures/Pipeline2.png)
 
 ---
 
