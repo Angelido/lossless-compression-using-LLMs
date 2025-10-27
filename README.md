@@ -66,7 +66,38 @@ A total of **30 LLMs** were explored, including:
 
 All models were retrieved from [HuggingFace](https://huggingface.co/).  
 
-A detailed table of models, including parameter counts, memory requirements, quantization status, and code specialization, is provided in the paper/manuscript accompanying this work.  
+| Model name / Released by | Params | Memory | Quantized | Code-specialized | Reference |
+|---------------------------|--------|--------|-----------|------------------|-----------|
+| bigcode/starcoder2-3b (4bit) | 3B | 1.99 GB | Yes | Yes | [BigCode](https://huggingface.co/bigcode) |
+| bigcode/starcoder2-3b (8bit) | 3B | 3.43 GB | Yes | Yes | [BigCode](https://huggingface.co/bigcode) |
+| bigcode/starcoder2-3b (bfloat16) | 3B | 6.31 GB | No | Yes | [BigCode](https://huggingface.co/bigcode) |
+| bigcode/starcoder2-3b (float32) | 3B | 12.62 GB | No | Yes | [BigCode](https://huggingface.co/bigcode) |
+| deepseek-ai/deepseek-coder-1.3b-base | 1.3B | 2.6 GB | No | Yes | [DeepSeek](https://huggingface.co/deepseek-ai) |
+| TheBloke/deepseek-coder-1.3b-base-AWQ | 1.3B | 0.85 GB | Yes | Yes | [TheBloke](https://huggingface.co/TheBloke) |
+| google/codegemma-2b | 2.5B | 4.7 GB | No | Yes | [Google](https://huggingface.co/google) |
+| PrunaAI/codegemma-2b-AWQ-4bit | 2.5B | 3 GB | Yes | Yes | [PrunaAI](https://huggingface.co/PrunaAI) |
+| google/gemma-2-2b | 2.6B | 5.2 GB | No | No | [Google](https://huggingface.co/google) |
+| unsloth/gemma-2-2b-bnb-4bit | 2.6B | 2.1 GB | Yes | No | [Unsloth](https://huggingface.co/unsloth) |
+| HuggingFaceTB/SmolLM3-3B | 3B | 4.7 GB | No | No | [HuggingFaceTB](https://huggingface.co/HuggingFaceTB) |
+| ibm-granite/granite-3.3-2b-base | 2B | 4.7 GB | No | No | [IBM](https://huggingface.co/ibm-granite) |
+| ibm-granite/granite-3b-code-base-2k | 3B | 6.6 GB | No | Yes | [IBM](https://huggingface.co/ibm-granite) |
+| PrunaAI/ibm-granite-3b-code-base-4bit | 3B | 2 GB | Yes | Yes | [PrunaAI](https://huggingface.co/PrunaAI) |
+| microsoft/phi-2 | 2.7B | 4.7 GB | No | No | [Microsoft](https://huggingface.co/microsoft) |
+| microsoft/unixcoder-base | 0.13B | 0.48 GB | No | Yes | [Microsoft](https://huggingface.co/microsoft) |
+| mistralai/Mistral-7B-v0.3 | 7B | 14 GB | No | No | [Mistral](https://huggingface.co/mistralai) |
+| unsloth/mistral-7b-v0.3-bnb-4bit | 7B | 4 GB | Yes | No | [Unsloth](https://huggingface.co/unsloth) |
+| meta-llama/Llama-3.1-8B | 8B | 15 GB | No | No | [Meta](https://huggingface.co/meta-llama) |
+| unsloth/Meta-Llama-3.1-8B-bnb-4bit | 8B | 5.4 GB | Yes | No | [Unsloth](https://huggingface.co/unsloth) |
+| meta-llama/Llama-3.2-3B | 3.21B | 6.4 GB | No | No | [Meta](https://huggingface.co/meta-llama) |
+| meta-llama/Llama-3.2-1B | 1.23B | 2.5 GB | No | No | [Meta](https://huggingface.co/meta-llama) |
+| unsloth/Llama-3.2-3B-bnb-4bit | 3.21B | 2.2 GB | Yes | No | [Unsloth](https://huggingface.co/unsloth) |
+| unsloth/Llama-3.2-1B-bnb-4bit | 1.23B | 0.97 GB | Yes | No | [Unsloth](https://huggingface.co/unsloth) |
+| Qwen/Qwen3-1.7B | 1.7B | 3.3 GB | No | No | [Qwen](https://huggingface.co/Qwen) |
+| openai/GPT-2-small | 0.124B | 0.48 GB | No | No | [OpenAI](https://huggingface.co/openai) |
+| openai/GPT-2-medium | 0.355B | 1.35 GB | No | No | [OpenAI](https://huggingface.co/openai) |
+| openai/GPT-2-large | 0.774B | 2.95 GB | No | No | [OpenAI](https://huggingface.co/openai) |
+| openai/GPT-2-xl | 1.5B | 5.6 GB | No | No | [OpenAI](https://huggingface.co/openai) |
+| Salesforce/codet5-base | 0.22B | 0.85 GB | No | Yes | [Salesforce](https://huggingface.co/Salesforce) |
 
 ---
 
