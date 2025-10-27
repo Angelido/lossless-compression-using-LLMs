@@ -23,7 +23,7 @@ Below is a schematic representation of the pipelines:
 
 ![First Compression Pipeline](Figures/Pipeline1.png)
 
-![Second Compression Pipeline](Figures/Pipeline2.png)
+![Second Compression Pipeline](Figures/pipeline2.drawio.png)
 
 ---
 
