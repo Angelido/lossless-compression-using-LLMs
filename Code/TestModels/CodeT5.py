@@ -1,3 +1,26 @@
+"""
+=======================================================
+Module: CodeT5.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It applies a pipeline to compute token rank lists from code
+    samples using a version of CodeT5.
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with the model to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/CodeT5_rank_list.txt
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
 import numpy as np
 import pandas as pd
 import time

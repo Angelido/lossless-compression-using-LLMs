@@ -1,3 +1,32 @@
+"""
+=======================================================
+Module: Granite.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It computes token rank lists from code samples using Granite
+    language models.
+
+    Two variants of Granite can be used:
+        - "ibm-granite/granite-3.3-2b-base"   : generic language model
+        - "ibm-granite/granite-3b-code-base-2k" : specialized for code
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with the model to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/Granite_rank_list.txt if generic model is used
+    TextInformation/GraniteCode_rank_list.txt if code-specialized model is used
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
+
 import numpy as np
 import pandas as pd
 import time
@@ -20,6 +49,11 @@ from utility import (
 # Model name
 # model_name = "ibm-granite/granite-3.3-2b-base" # Not specialized for code
 model_name = "ibm-granite/granite-3b-code-base-2k" # Specialized for code
+
+if model_name == "ibm-granite/granite-3.3-2b-base":
+    output_file = "TextInformation/Granite_rank_list.txt"
+else:
+    output_file = "TextInformation/GraniteCode_rank_list.txt"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -97,7 +131,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/Granite_rank_list.txt",
+    file_path=output_file,
     execution_time=execution_time,
     model_name=model_name  
 )

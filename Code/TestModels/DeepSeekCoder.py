@@ -1,10 +1,32 @@
+"""
+=======================================================
+Module: DeepSeekCoder.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It applies a pipeline to compute token rank lists from code
+    samples using a version of DeepSeekCoder.
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with the model to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/DeepSeekCoder_rank_list.txt
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
 import pandas as pd
 import time
 import torch
 import sys
 import os
-from transformers import AutoTokenizer
-from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -18,20 +40,16 @@ from utility import (
 )
 
 # Model name
-model_name = "TheBloke/deepseek-coder-1.3b-base-AWQ"
+model_name = "deepseek-ai/deepseek-coder-1.3b-base"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoAWQForCausalLM.from_pretrained(
-        model_name,     
-        device_map="auto",            # pass the model to the GPU
-        torch_dtype=torch.float16,    # mantain the model in float16 where needed
-        low_cpu_mem_usage=True,       # use less CPU memory
-)
+model = AutoModelForCausalLM.from_pretrained(model_name)
 
 batch_size = 32
 max_length = 512
 PAD_TOKEN_ID = tokenizer.pad_token_id  
+
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -94,7 +112,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/DeepSeek_Quantized_rank_list.txt",
+    file_path="TextInformation/DeepSeekCoder_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )

@@ -1,3 +1,31 @@
+"""
+=======================================================
+Module: Gemma.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It computes token rank lists from code samples using Gemma
+    language models.
+
+    Two variants of Gemma can be used:
+        - "google/gemma-2-2b"   : generic language model
+        - "google/codegemma-2b" : specialized for code
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with the model to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/Gemma_rank_list.txt if generic model is used
+    TextInformation/CodeGemma_rank_list.txt if code-specialized model is used
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
 import pandas as pd
 import time
 import torch
@@ -24,6 +52,11 @@ from huggingface_hub import login
 # Model name
 # model_name = "google/gemma-2-2b"  # Not specialized for code
 model_name = "google/codegemma-2b"  # Specialized for code
+
+if model_name == "google/gemma-2-2b":
+    output_file_path = "TextInformation/Gemma_rank_list.txt"
+else:
+    output_file_path = "TextInformation/CodeGemma_rank_list.txt"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -100,7 +133,7 @@ reconstructed_rank_list = [
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/rank_list.txt",
+    file_path=output_file_path,
     execution_time=execution_time,
     model_name=model_name  
 )
