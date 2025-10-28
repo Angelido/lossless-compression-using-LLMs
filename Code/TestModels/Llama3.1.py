@@ -1,9 +1,32 @@
+"""
+=======================================================
+Module: Llama3.1.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It applies a pipeline to compute token rank lists from code
+    samples using a version of Llama3.1-8B.
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with the model to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/Llama3.1_8B_rank_list.txt
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
 import pandas as pd
 import time
 import torch
 import sys
 import os
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # Read also files from the parent folder (utility, dataLoader, computeRank)   
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,40 +39,31 @@ from utility import (
     sort_chunks_by_length, 
 )
 
-# Model name
-# model_name = "bigcode/starcoder2-1b"
-model_name = "bigcode/starcoder2-3b"
+# Login to Hugging Face Hub
+from huggingface_hub import login
+# Insert hugginface token with the necessary permission
+# login(token="TOKEN"")
 
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,                         # Load the model in 4-bit   
-    bnb_4bit_use_double_quant=True,            # Improve performance
-    bnb_4bit_quant_type="nf4",                 # Can be "fp4" or "nf4"
-    bnb_4bit_compute_dtype=torch.bfloat16      # Use bfloat16 for computation
-)
+# Model name
+model_name = "meta-llama/Llama-3.1-8B"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token 
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    quantization_config=bnb_config,
-    device_map="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(model_name)
 
-print(model.hf_device_map)
-print(model.model.layers[0].self_attn.q_proj.weight.dtype)
-
-batch_size = 32
-max_length = 512
-PAD_TOKEN_ID = tokenizer.pad_token_id  
+batch_size = 16
+max_length = 256
+PAD_TOKEN_ID = tokenizer.pad_token_id
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
-# model.to(device)
+model.to(device)
 print("device=", device)
 
 df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
+# input_texts = df["text"].head(32).tolist()
 
 # Preprocessing and chunking
 input_id_list, mapping = preprocess_dataset_fast_old(
@@ -101,10 +115,17 @@ reconstructed_rank_list = [
     for row_idx in range(len(input_texts))
 ]
 
+print("Reconstructed rank list")
+
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/StarCoder2_4_rank_list.txt",
+    file_path="TextInformation/Llama3.1_8B_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
+
+print("Saved rank list to file")
+
+# Freeing the GPU memory cache after the operation
+torch.cuda.empty_cache()

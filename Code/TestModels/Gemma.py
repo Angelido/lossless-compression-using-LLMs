@@ -53,11 +53,6 @@ from huggingface_hub import login
 # model_name = "google/gemma-2-2b"  # Not specialized for code
 model_name = "google/codegemma-2b"  # Specialized for code
 
-if model_name == "google/gemma-2-2b":
-    output_file_path = "TextInformation/Gemma_rank_list.txt"
-else:
-    output_file_path = "TextInformation/CodeGemma_rank_list.txt"
-
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -130,6 +125,13 @@ reconstructed_rank_list = [
     for row_idx in range(len(input_texts))
 ]
 
+print("Reconstructed rank list")
+
+if model_name == "google/gemma-2-2b":
+    output_file_path = "TextInformation/Gemma_rank_list.txt"
+else:
+    output_file_path = "TextInformation/CodeGemma_rank_list.txt"
+
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
@@ -137,3 +139,8 @@ save_rank_list_to_file(
     execution_time=execution_time,
     model_name=model_name  
 )
+
+print("Saved rank list to file")
+
+# Freeing the GPU memory cache after the operation
+torch.cuda.empty_cache()

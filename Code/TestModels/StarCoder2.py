@@ -1,3 +1,31 @@
+"""
+=======================================================
+Module: StarCoder2.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It computes token rank lists from code samples using
+    non-quantized versions of the StarCoder2 model.
+
+    Two configurations are supported:
+        - Full precision (float32)
+        - Mixed precision (bfloat16)
+
+    The pipeline follows these steps:
+        1. Input         (load the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context       (preprocess, chunk, and build a DataLoader).
+        4. ComputeRanks  (use the selected StarCoder2 configuration
+                         to compute token rank positions).
+        5. ListOfRanks   (reconstruct results and save them to file).
+
+Output:
+    TextInformation/StarCoder2_float32_rank_list.txt if full precision or
+    TextInformation/StarCoder2_bfloat16_rank_list.txt for mixed precision
+    (rank lists with execution time and model info)
+=======================================================
+"""
+
 import pandas as pd
 import time
 import torch
@@ -16,32 +44,29 @@ from utility import (
     sort_chunks_by_length, 
 )
 
-# Login to Hugging Face Hub
-from huggingface_hub import login
-# Insert hugginface token with the necessary permission
-# login(token="TOKEN"")
-
 # Model name
-model_name = "meta-llama/Llama-3.2-1B" # Not quantized
-# model_name = "meta-llama/Llama-3.2-3B" # Not quantized
+model_name = "bigcode/starcoder2-3b"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token 
-model = AutoModelForCausalLM.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,   # Change here the precision 
+    device_map="auto" 
+)
 
 batch_size = 32
 max_length = 512
-PAD_TOKEN_ID = tokenizer.pad_token_id
+PAD_TOKEN_ID = tokenizer.pad_token_id  
 
 # Set the device to cuda if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model.to(device)
+# model.to(device)
 print("device=", device)
 
 df = pd.read_csv("Dataset/CodeDataset.csv")
 input_texts = df["text"].tolist()
-# input_texts = df["text"].head(32).tolist()
 
 # Preprocessing and chunking
 input_id_list, mapping = preprocess_dataset_fast_old(
@@ -93,10 +118,22 @@ reconstructed_rank_list = [
     for row_idx in range(len(input_texts))
 ]
 
+print("Reconstructed rank list")
+
+if model.config.torch_dtype == torch.bfloat16:
+    precision_str = "bfloat16"
+else:
+    precision_str = "float32"
+
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/rank_list.txt",
+    file_path=f"TextInformation/StarCoder2_{precision_str}_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
+
+print("Saved rank list to file")
+
+# Freeing the GPU memory cache after the operation
+torch.cuda.empty_cache()

@@ -1,3 +1,33 @@
+"""
+=======================================================
+Module: UnixCoder.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It applies a pipeline to compute token rank lists from code
+    samples using UniXcoder, a model for source code understanding
+    developed by Microsoft.
+
+    Important:
+        To run this script, you must have the file `unixcoder.py`
+        (available on GitHub), which contains the UniXcoder class
+        used to load and interact with the model.
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with UniXcoder to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/UnixCoder_rank_list.txt
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
+
 import pandas as pd
 import time
 import torch
@@ -89,10 +119,17 @@ reconstructed_rank_list = [
     for row_idx in range(len(input_texts))
 ]
 
+print("Reconstructed rank list")
+
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/UnixCoder2.txt",
+    file_path="TextInformation/UnixCoder_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
+
+print("Saved rank list to file")
+
+# Freeing the GPU memory cache after the operation
+torch.cuda.empty_cache()

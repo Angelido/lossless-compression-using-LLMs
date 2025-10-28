@@ -1,3 +1,26 @@
+"""
+=======================================================
+Module: SmolLM3.py
+
+Description:
+    This script is part of the first phase of experimentation.
+    It applies a pipeline to compute token rank lists from code
+    samples using a version of SmolLM3.
+
+    The pipeline follows these steps:
+        1. Input  (read the dataset of code samples).
+        2. Tokenization  (convert code into token IDs).
+        3. Context creation  (chunking and building a DataLoader).
+        4. ComputeRanks  (process tokens with the model to
+           compute rank positions).
+        5. ListOfRanks  (aggregate results and save them to file).
+
+Output:
+    TextInformation/SmolLM3_rank_list.txt
+    (contains the rank lists with execution time and model info)
+=======================================================
+"""
+
 import numpy as np
 import pandas as pd
 import time
@@ -94,9 +117,12 @@ print("Reconstructed rank list")
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
-    file_path="TextInformation/rank_list.txt",
+    file_path="TextInformation/SmolLM3_rank_list.txt",
     execution_time=execution_time,
     model_name=model_name  
 )
 
 print("Saved rank list to file")
+
+# Freeing the GPU memory cache after the operation
+torch.cuda.empty_cache()

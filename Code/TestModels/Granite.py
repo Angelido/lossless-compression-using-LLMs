@@ -26,7 +26,6 @@ Output:
 =======================================================
 """
 
-
 import numpy as np
 import pandas as pd
 import time
@@ -49,11 +48,6 @@ from utility import (
 # Model name
 # model_name = "ibm-granite/granite-3.3-2b-base" # Not specialized for code
 model_name = "ibm-granite/granite-3b-code-base-2k" # Specialized for code
-
-if model_name == "ibm-granite/granite-3.3-2b-base":
-    output_file = "TextInformation/Granite_rank_list.txt"
-else:
-    output_file = "TextInformation/GraniteCode_rank_list.txt"
 
 # Model tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -128,6 +122,13 @@ reconstructed_rank_list = [
     for row_idx in range(len(input_texts))
 ]
 
+print("Reconstructed rank list")
+
+if model_name == "ibm-granite/granite-3.3-2b-base":
+    output_file = "TextInformation/Granite_rank_list.txt"
+else:
+    output_file = "TextInformation/GraniteCode_rank_list.txt"
+
 # Save the rank list to a file
 save_rank_list_to_file(
     rank_list=reconstructed_rank_list,
@@ -136,3 +137,7 @@ save_rank_list_to_file(
     model_name=model_name  
 )
 
+print("Saved rank list to file")
+
+# Freeing the GPU memory cache after the operation
+torch.cuda.empty_cache()
