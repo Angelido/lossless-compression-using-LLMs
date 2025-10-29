@@ -1,5 +1,30 @@
 # Lossless Compression using LLMs
 
+<p align="center">
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs/stargazers">
+    <img src="https://img.shields.io/github/stars/Angelido/lossless-compression-using-LLMs" alt="GitHub Stars">
+  </a>
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs/issues">
+    <img src="https://img.shields.io/github/issues/Angelido/lossless-compression-using-LLMs" alt="GitHub Issues">
+  </a>
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs/pulls">
+    <img src="https://img.shields.io/github/issues-pr/Angelido/lossless-compression-using-LLMs" alt="Pull Requests">
+  </a>
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs/graphs/contributors">
+    <img src="https://img.shields.io/github/contributors/Angelido/lossless-compression-using-LLMs" alt="Contributors">
+  </a>
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs">
+    <img src="https://img.shields.io/github/repo-size/Angelido/lossless-compression-using-LLMs" alt="Repository Size">
+  </a>
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs">
+    <img src="https://img.shields.io/github/last-commit/Angelido/lossless-compression-using-LLMs" alt="Last Commit">
+  </a>
+  <a href="https://github.com/Angelido/lossless-compression-using-LLMs/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/Angelido/lossless-compression-using-LLMs" alt="License">
+  </a>
+</p>
+
+
 **Status:** Work in Progress 🚧  
 This repository is under active development. The current codebase is incomplete, and new modules are being progressively added.  
 
