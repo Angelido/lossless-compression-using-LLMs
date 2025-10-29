@@ -1,5 +1,8 @@
 # Lossless Compression using LLMs
 
+**Status:** Work in Progress 🚧  
+This repository is under active development. The current codebase is incomplete, and new modules are being progressively added.  
+
 <p align="center">
   <a href="https://github.com/Angelido/lossless-compression-using-LLMs/stargazers">
     <img src="https://img.shields.io/github/stars/Angelido/lossless-compression-using-LLMs" alt="GitHub Stars">
@@ -23,10 +26,6 @@
     <img src="https://img.shields.io/github/license/Angelido/lossless-compression-using-LLMs" alt="License">
   </a>
 </p>
-
-
-**Status:** Work in Progress 🚧  
-This repository is under active development. The current codebase is incomplete, and new modules are being progressively added.  
 
 ---
 
